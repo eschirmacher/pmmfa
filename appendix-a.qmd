@@ -1,0 +1,207 @@
+
+# B&uuml;hlmann--Straub Simulation {#sec-appendix-a}
+
+```{r}
+#| include: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(lme4)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+```
+
+
+In the B&uuml;hlmann--Straub model, the observation for risk 
+class $j$ in time period $t$, $X_{jt}$, can be decomposed as
+$$
+  X_{jt} = m + \Xi_j + \epsilon_{jt},
+$$
+where $m$ is the overall average and $j = 1, 2, \dots, J$
+and $t = 1, 2, \dots, T + 1$.
+The unobservable component $\Xi_j$ represents deviations from the overall
+mean $m$ for risk class $j$, and we assume that they are independent
+and identically distributed with mean zero and
+$\text{Var}[\Xi_j] = \tau^2$.
+The component $\epsilon_{jt}$ represents deviations across time from
+the long term average of risk class $j$, that is, $m + \Xi_j$.
+We also assume that they are independent and 
+identically distributed with variance given by
+$$
+  \text{Var}[\epsilon_{jt}] = \frac{\sigma^2}{w_{jt}},
+$$
+where $w_{jt}$ are weights.
+
+The B&uuml;hlmann--Straub assumes that only the first and second
+moments exist.
+To simulate data from their model, we will assume normal distributions
+for the two random components: $\Xi_j$ and $\epsilon_{jt}$.
+We will also assume that the weights $w_{jt}$ are uniformly 
+distributed in an interval.
+
+The code below uses the abbreviations in @tbl-app-a-code-notation.
+
+| Code | Notation | Comments |
+|:-----|:---------|:---------|
+| `J` | $J$ | Number of risk classes |
+| `N` | $T + 1$ | Number of time periods |
+| `m` | $m$ | Overall average |
+| `sigma.b.sq` | $\tau^2$ | Between-risk variance |
+| `sigma.sq`   | $\sigma^2$ | Within-risk variance |
+| `weight.min` |  | Minimum weight | 
+| `weight.spread` |  | Length of interval for weights |
+| `risk.dev` | $\Xi_j$ | Risk deviation from $m$ |
+| `time.dev` | $\epsilon_{jt}$ | Risk deviation from $m + \Xi_j$ |
+| `weight`   | $w_{jt}$ | Weights |
+
+: Code constructs and corresponding mathematical notation. {#tbl-app-a-code-notation}
+
+
+The following function, `sim.BS()`, simulates a B&uuml;hlmann--Straub
+dataset with given parameter values and returns a data frame.
+
+```{r}
+#| echo: true
+#| label: function-to-simulate-Buehlmann-Straub-model
+
+sim.BS <- function(
+    sim.label = "A",
+    J = 100,
+    N = 5,
+    beta = 80,
+    sigma.b.sq = 64,
+    sigma.sq = 100,
+    weight.min = 0.5,
+    weight.spread = 1) {
+  
+  risk.dev <- rep(rnorm(J, mean = 0, sd = sqrt(sigma.b.sq)),
+                  each = N)
+  time.dev <- rnorm(J * N, mean = 0, sd = sqrt(sigma.sq))
+  weight <- weight.min + runif(J * N, min = 0, max = weight.spread)
+  tb <- tibble(
+    sim.label = rep(sim.label, J * N),
+    risk = factor(rep(1:J, each = N)),
+    Wt = weight,
+    rsk.dev = risk.dev,
+    tme.dev = time.dev,
+    Y = beta + rsk.dev + tme.dev
+  )
+  return(tb)
+}
+```
+
+With this function we can generate four different data sets with different
+number of observation per risk, $N = 5, 10, 20, 40$, and store them in a list.
+
+```{r}
+set.seed(398845)
+BS.data <- list(
+  BS.5  = sim.BS(sim.label =  "5 Obs. per Risk", N =  5),
+  BS.10 = sim.BS(sim.label = "10 Obs. per Risk", N = 10),
+  BS.20 = sim.BS(sim.label = "20 Obs. per Risk", N = 20),
+  BS.40 = sim.BS(sim.label = "40 Obs. per Risk", N = 40))
+```
+
+To each dataset we will fit a linear mixed-effects model and store the
+fitted models in a list.
+
+```{r}
+BS.models <- map(BS.data,
+                 \(d) lmer(Y ~ 1 + (1 | risk),
+                           data = d,
+                           weights = Wt))
+```
+
+Next, we compute the fitted values and standardized residuals for each model
+and append them to the dataset.
+We also calculate the slopes of the fitted linear regression where the
+response variable is the standardized residual and the predictor variable
+is fitted value.
+
+```{r}
+BS.FV.Res <- map(BS.models,
+                 \(m) {
+                   tb <- getData(m)
+                   tb$mu <- fitted(m)
+                   tb$rsP <- resid(m, type = "pearson") / sigma(m)
+                   return(tb)})
+
+BS.slopes <- map_dbl(BS.FV.Res,
+                     \(tb) {
+                       fm <- lm(rsP ~ mu,
+                                data = tb)
+                       sfm <- summary(fm)
+                       return(coef(sfm)[2,1])})
+
+BS.pvals <- map_dbl(BS.FV.Res,
+                    \(tb) {
+                      fm <- lm(rsP ~ mu,
+                               data = tb)
+                      sfm <- summary(fm)
+                      return(coef(sfm)[2,4])})
+```
+
+We collect all the information into a single data frame and create
+a categorical variable to identify the simulation.
+
+```{r}
+BS.results <- reduce(BS.FV.Res, bind_rows)
+BS.results$sim.label <- factor(BS.results$sim.label)
+BS.results$sim.label <- fct_relevel(
+  BS.results$sim.label,
+  str_c(str_sub(names(BS.slopes), 4), 
+        " Obs. per Risk")[order(BS.slopes,
+                                decreasing = TRUE)])
+```
+
+@fig-BS-sim-obs-per-risk
+shows the results, where we can see that as the number of observations
+increases, the slope of the line decreases.
+For this particular set of simulated data, the slopes for the 
+5, 10, and 20 observations per risk sets are statistically different
+from zero
+but not for the 40 observations per risk set.
+
+```{r}
+tb <- round(rbind(BS.slopes,
+      BS.pvals), 4)
+dimnames(tb) <- list(c("Slope", "P-Value"),
+                     c("5 Obs.", "10 Obs.", "20 Obs.", "40 Obs."))
+tb
+```
+
+```{=latex}
+\clearpage
+```
+
+
+```{r}
+#| label: fig-BS-sim-obs-per-risk
+#| fig-cap: "Results of fitting a linear regression model to simulated data from the B&uuml;hlmann--Straub model. The panels have been arranged from the largest slope in the upper-left (5 Obs. per Risk) to the smallest slope in the lower-right (40 Obs. per Risk)."
+#| fig-width: 5.5
+#| fig-height: 4.5
+#| message: false
+
+ggplot(data = BS.results,
+       mapping = aes(x = mu,
+                     y = rsP)) +
+  facet_wrap(vars(sim.label)) +
+  geom_point(pch = 1, alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals")
+```
+
+```{r}
+#| include: false
+
+rm(list = c(ls(pattern = "[Bb][Ss]"),
+            "tb"))
+```
+
+

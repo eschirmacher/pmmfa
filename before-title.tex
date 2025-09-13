@@ -1,0 +1,36 @@
+%
+% Before Title Partial
+%
+
+% Customize Theorems and Definitions
+\newtheoremstyle{casthm}%
+  {3pt}{3pt}%
+  {\itshape}%
+  {0pt}{\color{CASBlue}\sffamily\bfseries}%
+  {.}%
+  { }%
+  {\thmname{#1}\thmnumber{ #2}\thmnote{ (#3)}}%
+\theoremstyle{casthm}
+\newtheorem{sptheorem}{Theorem}[chapter]
+\newtheorem{spdefinition}{Definition}[chapter]
+\renewenvironment{theorem}{\begin{sptheorem}}{\end{sptheorem}}
+\renewenvironment{definition}{\begin{spdefinition}}{\end{spdefinition}}
+
+% Customize code listings
+\makeatletter
+  \newcommand\fs@casruled{\def\@fs@cfont{\bfseries}\let\@fs@capt\floatc@ruled
+    \def\@fs@pre{{\color{CASBlue}\hrule height.8pt depth0pt}}%
+    \def\@fs@post{{\color{CASBlue}\hrule\relax}}%
+    \def\@fs@mid{{\color{CASBlue}\hrule}}%
+    \let\@fs@iftopcapt\iftrue}
+\makeatother
+
+\floatstyle{casruled}
+\newfloat{spcodelisting}{h}{lop}[chapter]
+\floatname{spcodelisting}{Listing}
+\renewenvironment{codelisting}{\begin{spcodelisting}}{\end{spcodelisting}}
+
+%
+% End Before Title Partial
+%
+

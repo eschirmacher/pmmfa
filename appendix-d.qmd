@@ -1,0 +1,82 @@
+
+# Computing Environment {#sec-appendix-d}
+
+All the computations were done in **R**
+[@rcoreteamLanguageEnvironmentStatistical2024]
+with the help of several packages in the areas
+of computation, data sets, and graphics/tables.
+Readers wishing to replicate the results shown should 
+install the following packages (and their
+dependencies).
+All but one of them are available from
+[*The Comprehensive R Archive Network*](https://cran.r-project.org/mirrors.html)
+(CRAN).
+
+## Computation
+
+We have used the following packages in our computations
+
+| Package Name | Citation |
+|:-------------|:-------------|
+| `actuar`     | @dutangActuarPackageActuarial2008 |
+| `dhglm`      | @leeDhglmDoubleHierarchical2018 |
+| `gamlss`     | @rigbyGeneralizedAdditiveModels2005 |
+| `hglm`       | @ronnegardHglmPackageFitting2010 |
+| `lme4`       | @batesFittingLinearMixedeffects2015 |
+| `MASS`       | @venablesModernAppliedStatistics2002 |
+| `mvtnorm`    | @genzComputationMultivariateNormal2009 |
+| `statmod`    | @dunnRandomizedQuantileResiduals1996 |
+| `tidyverse`  | @wickhamWelcomeTidyverse2019 |
+
+: R packages used in computations.
+
+## Graphics and Tables
+
+| Package Name | Citation |
+|:-------------|:-------------|
+| `GGally`     | @schloerkeGGallyExtensionGgplot22024 |
+| `kableExtra` | @zhuKableExtraConstructComplex2024 |
+| `patchwork`  | @pedersenPatchworkComposerPlots2024 |
+
+: R packages used for graphs and tables.
+
+## Data 
+
+The following packages, available on CRAN,
+have data sets used in the text.
+
+| Package Name    | Citation                           |
+|:----------------|:-----------------------------------|
+| `GLMsData`      | Peter K. Dunn and Smyth (2022)     |
+| `insuranceData` | Wolny–Dominiak and Trzesiok (2014) |
+| `lars`          | Hastie and Efron (2022)            |
+| `mdhglm`        | Youngjo Lee, Molas, and Noh (2018) |
+
+: R packages with data sets used in the text.
+
+
+The `CASdatasets` package is not available on the
+*Comprehensive R Archive Network* due to its size.
+Please visit the 
+[CASdatasets](https://github.com/dutangc/CASdatasets) 
+page on 
+[GitHub](https://github.com/) 
+for further information and instructions on how to install it.
+
+
+The data sets `bus-case.csv` and `medpar.csv` are not
+available from CRAN. Both of them are avilable from their
+corresponding book:
+
+1. *Non-Life Insurance Pricing with  Generalized Linear Models* 
+   [@ohlssonNonlifeInsurancePricing2010] is the source of the 
+   data set `bus-case.csv`, and 
+1. *Negative Binomial Regression*
+   [@hilbeNegativeBinomialRegression2007] provides the 
+   `medpar.csv` data set.
+
+
+
+
+
+

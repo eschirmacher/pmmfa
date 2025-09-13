@@ -1,0 +1,2041 @@
+
+# Linear Mixed Models {#sec-linear-mixed-models}
+
+```{r}
+#| include: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(kableExtra)
+library(lme4)
+library(mvtnorm)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+```
+
+
+## Introduction 
+
+In
+@sec-credibility-theory
+we looked at the balanced B&uuml;hlmann, the B&uuml;hlmann--Straub,
+and Hachemeister's credibility regression models.
+Those and similar models have also been studied by statisticians under
+various names---linear mixed models (LMMs), hierarchical models, longitudinal
+models, and panel models, to name a few.
+The statistical literature on such models is extensive, and the models
+are well developed.
+Actuaries can benefit significantly by using the underlying theory 
+and the tools available to assess such models.
+
+We will introduce LMMs by reframing the credibility
+models in the standard statistical notation and exploring the tools
+that have been developed to fit and assess them.
+This should illustrate how we can apply the LMM theory to
+practical problems in credibility.
+
+
+## Balanced B&uuml;hlmann Model Revisited
+
+One way to write the balanced B&uuml;hlmann model (see
+@eq-simple-buehlmann-model) is
+$$
+X_{jt} = \mu + \Xi_j + \epsilon_{jt}, \qquad
+  j = 1, 2, \dots, J, \quad t = 1, 2, \dots, T,
+$$
+where $X_{jt}$ is the observation for group $j$ at time $t$,
+$\mu$ is the overall mean, $\Xi_j$ is a random deviation from the
+overall mean for group $j$, and $\epsilon_{jt}$ is an error term for
+the $j,t$ observation.
+This conforms to the actuarial notation but not to the statistician's.
+So we will switch the notation to what is commonly used in statistics.
+
+The response variable is typically named $Y$, and the
+explanatory variables are usually denoted by $X$.
+We can express the balanced B&uuml;hlmann model as
+$$
+  y_{jt} = \beta + b_j + \epsilon_{jt},
+$$
+where $\beta$ is the overall mean, $b_j$ is a random variable
+representing the deviation from the overall mean for the $j$th group, and 
+$\epsilon_{jt}$ is the deviation for the $j, t$ observation.
+Both $b_j$ and $\epsilon_{jt}$ are *deviations*, and therefore we know
+their means are zero.
+
+Since $b_j$ and $\epsilon_{jt}$ are random variables, we need to specify
+their distributions and how they might be related to each other.
+For this model, we will have them both be independent, with constant
+variance, and normally distributed.
+The variance of $b_j$ will be denoted by $\sigma_b^2$ and denotes the 
+*between*-group variability.
+Actuaries call this the *variance of the hypothetical means*, or VHM.
+The hypothetical means are $\beta + b_j$.
+The variance of $\epsilon_{jt}$ is known as *within*-group variability and is
+denoted by $\sigma^2$.
+In actuarial groups this is known as the 
+*expected value of the process variance*, or EVPV.
+We can write these specifications as 
+$$
+b_j \sim \mathcal{N}(0,\sigma_b^2) 
+\qquad\text{and}\qquad
+\epsilon_{jt} \sim \mathcal{N}(0,\sigma^2),
+$$
+where $\mathcal{N}(0,\sigma^2)$ represents the normal distribution with 
+mean equal to zero and variance equal to $\sigma^2$.
+
+For the balanced B&uuml;hlmann model, we did not make the assumption that
+our random variables were normally distributed.
+We assumed only that they had finite first and second moments,
+and we used the
+method of moments to derive estimates for variances.
+It turns out that the maximum likelihood estimates of these variances
+coincide with the method of moments for this simple model.
+Hence, the balanced B&uuml;hlmann model is equivalent to this LMM.
+
+Statisticians would call $\beta$ a fixed effect and $b_i$ a random effect,
+and because this model has both fixed and random effects it is called a
+*mixed-effects* model.
+The naming of coefficients as either fixed or random is not without
+controversy.
+@gelmanDataAnalysisUsing2007 [Section 11.4],
+outline five definitions for these terms, and in their work they avoid
+using the terms.
+
+Using the same data as in
+@tbl-balanced-example,
+namely (showing the first few rows of the data frame),
+
+
+```{r}
+#| echo: false
+
+dta <- tibble(class = factor(rep(1:3, each = 4),
+                             levels = 1:3),
+              time = rep(1:4, times = 3),
+              value = c(625, 675, 600, 700,
+                        750, 800, 650, 800,
+                        900, 700, 850, 950))
+head(dta)
+```
+
+we will illustrate the fitting of an LMM and show
+that we arrive at the same estimates.
+But rather than jumping straight into that mixed model, we want to describe
+one process of fitting and exploring models to reach that mixed model.
+
+We can start simply by fitting an OLS model that includes only
+an intercept term.
+Such a model is usually called a *null* model.
+It is the most basic model we can have.
+
+```{r}
+BB.null.lm <- lm(value ~ 1,
+                 data = dta)
+(sBB.null.lm <- summary(BB.null.lm))
+```
+
+From the output, we can see that the overall mean is 
+`r round(coef(BB.null.lm), 1)`
+and the residual standard error is 
+`r round(sBB.null.lm$sigma, 2)`.
+Thus, we know that 
+$\hat{\beta}_0 = `r round(coef(sBB.null.lm)[1,1], 2)`$ and 
+$\hat{\sigma}^2 = `r format(round(sBB.null.lm[['sigma']]^2, 2), big.mark = ",")`$.
+
+
+```{r}
+#| echo: false
+#| label: fig-BB-null-ols-residuals
+#| fig-cap: "OLS residuals for the balanced B&uuml;hlmann example data. Note that the residuals for class #1 all have the same sign, and nearly all points for class #3 also have the same sign. We introduced a slight amount of horizontal jittering to avoid overplotting a pair of residuals."
+
+dta$res.null <- resid(BB.null.lm)
+
+ggplot(data = dta,
+       mapping = aes(y = res.null,
+                     x = class,
+                     color = class)) +
+  geom_jitter(width = 0.08, height = 0) +
+  labs(y = "Residuals",
+       x = "Class") +
+  theme(legend.position = "none")
+```
+
+The residuals from this model (see
+@fig-BB-null-ols-residuals)
+show some unsettling patterns.
+All residuals for class #1 are negative and clustered around $-100$.
+Similarly, nearly all the residuals for class #3 are positive and also seem to
+be clustered around $150$.
+Clearly, an intercept-only model does not fit the data well, and we have an
+effect from the `class` variable that needs to be incorporated into the model.
+We can add `class` as a categorical variable to estimate the model.
+
+```{r}
+BB.class.lm <- lm(value ~ class - 1,
+                  data = dta)
+(sBB.class.lm <- summary(BB.class.lm))
+```
+
+In the above model we removed the intercept so that we 
+would estimate a mean value for each class (instead of using one of the 
+classes as an intercept and then estimating deviations from this mean for the 
+other two classes).
+Note that the residual standard error is now much 
+smaller: `r round(sBB.class.lm$sigma, 2)` versus 
+`r round(sBB.null.lm$sigma, 2)`.
+This model fits our data more closely.
+
+```{r}
+#| echo: false
+#| label: fig-BB-class-ols-residuals
+#| fig-cap: "OLS residuals for the balanced B&uuml;hlmann example data with a mean estimate for each class. Note that now all the residuals are centered around zero. We introduced a slight amount of horizontal jittering to avoid overplotting a pair of residuals."
+
+dta$res.class <- resid(BB.class.lm)
+
+ggplot(data = dta,
+       mapping = aes(y = res.class,
+                     x = class,
+                     color = class)) +
+  geom_jitter(width = 0.08, height = 0) +
+  labs(y = "Residuals",
+       x = "Class") +
+  theme(legend.position = "none")
+```
+
+@fig-BB-class-ols-residuals
+shows residuals that are much better behaved.
+They are all centered around zero with both positive and negative values for
+each class.
+We might be quite happy with this model if we were interested in just these
+three classes.
+But consider that these three might have been just a sample from 
+hundreds of classes (say, workers compensation occupational classes).
+If we were to include all possible classes in a model, we may not be able
+to estimate all of the parameters accurately.
+Some classes may have lots of data, but others may have very little.
+More troublesome is the fact that as we add classes, the number of parameters
+that need to be estimated increases.
+
+So we want to think of the three classes we have as being a sample from
+a population of classes.
+Thus, we want to estimate the following mixed model:
+$$
+  y_{jt} = \beta + b_j + \epsilon_{jt},
+$$
+where $j = 1, 2, 3$ and $t = 1, 2, 3, 4$.
+This model has a fixed effect $\beta$, which is constant across classes,
+and a random deviation from the overall mean $b_j$ for each class.
+We can fit this model with the `lmer()` function from the `lme4` package
+as follows:
+
+```{r}
+BB.mx <- lmer(value ~ 1 + (1 | class),
+              data = dta)
+```
+
+The response variable is `value`, and the first 1 after the "`~`" says we want
+a fixed-effect intercept.
+We can specify other fixed effects in this part of the formula as we would
+in fitting a regular regression model.
+The component in parentheses after the plus sign is for the random effects.
+Here we have `1 | class` because we want a random intercept for each level
+of the `class` variable.
+
+The parameters to be estimated for this model are $\beta$, 
+the fixed effect;
+$\sigma_b^2$, the between-class variance (VHM);
+and $\sigma^2$ the within-class variance (EVPV), also known as the residual variance.
+
+```{r}
+(sBB.mx <- summary(BB.mx))
+```
+
+From the output we have $\hat{\beta} = 750$, 
+$\hat{\sigma}_b^2 = 8{,}438$, and
+$\hat{\sigma}^2 = 6{,}250$.
+Thus, we can see that the variance between classes is bigger than the 
+variance within a class.
+The random effects are 
+
+```{r}
+round(ranef(BB.mx)$class, 3)
+```
+
+which tells us that our estimated mean is 
+$750 - 84.375 = 665.625$ for class #1,
+$750 + 0 = 750$ for class #2, and
+$750 + 84.375 = 834.375$ for class #3.
+These are the hypothetical means for each class.
+Note that they are exactly the same estimates as the 
+credibility estimates we
+calculated in @sec-credibility-theory, @eq-BB-credibility-factor.
+The credibility factor can also be easily derived from the above output:
+$$
+  Z = \frac{T}{T + \hat{\sigma}^2 / \hat{\sigma}_b^2} = 
+      \frac{4}{4 + 6{,}250 / 8{,}437.5} = 0.84375.
+$$
+The value of $T$ represents the number of observations in each group, and
+because we are in the *balanced* B&uuml;hlmann model, we know that each group
+has the same number of observations.
+The above output tells us that there were 12 observations and three groups; hence,
+$T = 12/3 = 4$.
+
+In the mixed model we have assumed that the residual variance $\sigma^2$
+is constant.
+By plotting the fitted values against the standardized residuals we can
+check this assumption.
+@fig-BB-mixed-standardized-residuals
+shows these residuals, and even though we have a small sample size the
+residuals are well behaved.
+
+```{r}
+#| echo: false
+#| label: fig-BB-mixed-standardized-residuals
+#| fig-cap: "Standardized residuals for the balanced B&uuml;hlmann data fitted with the mixed model. Note that all residuals are within 1.5 standard deviations from zero.  We added a bit of horizontal jittering to avoid overplotting a pair of residuals."
+
+dta$mu.mx <- fitted(BB.mx)
+dta$sres.mx <- resid(BB.mx, type = "pearson", scaled = TRUE)
+
+ggplot(data = dta,
+       mapping = aes(x = mu.mx,
+                     y = sres.mx,
+                     color = class)) +
+  geom_jitter(width = 3, height = 0) +
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals",
+       color = "Class")
+```
+
+```{r}
+#| include: false
+
+rm(list = c(ls(pattern = "s*BB"), "dta"))
+```
+
+
+## B&uuml;hlmann--Straub Model Revisited
+
+The B&uuml;hlmann--Straub model is nearly the same as the balanced
+B&uuml;hlmann model.
+There are two key differences:
+
+- we do not assume that all risks have been observed for the same
+  number of periods (we no longer have a balanced dataset), and
+- we introduce weights so that the residual variance is proportional
+  to the inverse of the weights.
+
+Therefore, the B&uuml;hlmann--Straub model can be written as
+$$
+  y_{jt} = \beta + b_j + \epsilon_{jt} 
+  \qquad\text{with}\quad
+  b_j \sim \mathcal{N}(0, \sigma_b^2) 
+  \quad\text{and}\quad
+  \epsilon_{jt} \sim \mathcal{N}\left(0, \frac{\sigma^2}{w_{jt}}\right),
+$$
+where $w_{jt}$ are the weights associated with the observation from risk
+$j$ and time $t$.
+
+In
+@sec-buehlmann-straub-model,
+we illustrated the standard actuarial calculations for this model on 
+a simulated dataset (see @lst-sim-BS-model) that had 100 different risk classes and five time periods
+of observations.
+The parameters used in the simulation were
+$$
+  \beta = 80, \qquad 
+  \sigma_b^2 = 64, \qquad
+  \sigma^2 = 100.
+$$
+Note that in the B&uuml;hlmann--Straub model we denoted the between-risk
+variance (variance of the hypothetical means) by the symbol $\tau^2$,
+but here we use $\sigma_b^2$.
+
+We will use the same simulated data to illustrate how to estimate these
+parameters via an LMM, and so we load the dataset we 
+created in the previous chapter.
+
+```{r}
+bs.dta <- read_csv("BS-simulated-data.csv",
+                   col_types = "fdd")
+```
+
+We estimate the B&uuml;hlmann--Straub model using the 
+linear mixed-effects regression function 
+`lmer()` from the R package `lme4` as follows:
+
+```{r}
+BS.mx <- lmer(X.jt ~ 1 + (1 | risk),
+              data = bs.dta,
+              weights = W.jt)
+```
+
+Note that the dataset uses the actuarial notation `X.jt` for the
+response variable and `risk` for the name of the class variable,
+where the formula in the first argument, 
+$\text{X.jt} \sim 1 + (1 \,|\, \text{risk})$,
+says that we have a fixed-effects intercept, the first 1, and the 
+expression inside parentheses denotes the random component of the model.
+In this case, the random component is just an intercept that varies by
+the classification variable `risk`.
+We can obtain summary information about the fit via the `summary()`, and 
+we have saved the information in an object, `sBS.mx`, to be able to extract
+some of that information later on.
+
+```{r}
+(sBS.mx <- summary(BS.mx))
+```
+
+@tbl-actual-estimated-parameters shows the true value of the model parameters, their
+estimated values from the mixed model, and the credibility estimates from
+@sec-buehlmann-straub-model.
+Note that the mixed model estimates and the credibility estimates are very
+close to each other, and both are not far away from true values we used to
+simulate the data.
+
+::: {#tbl-actual-estimated-parameters}
+
+| Parameter    | True Values  | Mixed-Model Estimates | Credibility Estimates |
+|:------------:|-------------:|----------------------:|----------------------:|
+| $\beta$      |  80          |  78.5384              |  78.4363              |
+| $\sigma_b^2$ |  64          |  61.1411              |  60.9652              |
+| $\sigma^2$   | 100          | 104.6386              | 104.5239              |
+
+Comparison of actual and estimated model parameters for the B&uuml;hlmann--Straub simulated data.
+
+:::
+
+For the B&uuml;hlmann--Straub model, the credibility factors differ by
+risk group $j$, and from the above model output they would be equal to
+$$
+  \hat{Z}_j = \frac{w_{j\bullet}}{w_{j\bullet} + \hat{\sigma}^2 / \hat{\sigma}_b^2} =
+    \frac{w_{j\bullet}}{w_{j\bullet} + 104.64 / 61.14},
+$$
+where $w_{j\bullet}$ is the sum of all the weights across time for risk $j$.
+
+From the LMM `BS.mx`, we can also obtain values for the
+deviations $b_j$ from the overall mean $\beta$.
+These values are $\hat{b}_1, \hat{b}_2, \dots, \hat{b}_{100}$.
+The first 20 of them are
+
+```{r}
+round(ranef(BS.mx)$risk[1:20,1], 3)
+```
+
+These values together with the estimate of the fixed effect $\hat{\beta}$
+yields the credibility-weighted estimate for each risk---that is,
+$\hat{\beta} + \hat{b}_j$ is our estimate for risk $j$.
+For the first 20 risks we have 
+
+```{r}
+round(fixef(BS.mx) + ranef(BS.mx)$risk[1:20, 1], 3)
+```
+
+We add fitted values to our dataset and compute the standardized residuals
+from our model.
+
+```{r}
+bs.dta$mu.mx <- fitted(BS.mx)
+bs.dta$sres.mx <- resid(BS.mx, type = "pearson", scaled = TRUE)
+```
+
+@fig-BS-FV-vs-SR
+displays the fitted values versus the standardized residuals.
+The scatterplot of points appears like a random cloud of points
+centered about the line $y = 0$.
+But if you look closely you might be able to discern a upward-sloping
+pattern.
+
+```{r}
+#| echo: false
+#| label: fig-BS-FV-vs-SR
+#| fig-cap: "Diagnostic plot for the LMM with random intercepts fitted to the simulated B&uuml;hlmann--Straub data. All the standardized residuals are within 2.5 standard deviations from the origin. The overall impression is that of a random cloud of points."
+
+ggplot(data = bs.dta,
+       mapping = aes(x = mu.mx,
+                     y = sres.mx)) +
+  geom_point() + 
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals")
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Fit a linear regression line to the points shown in 
+@fig-BS-FV-vs-SR
+to show that there is an upward-sloping pattern in the residuals.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+We fit a linear model to the points shown in
+@fig-BS-FV-vs-SR
+as follows:
+
+```{r}
+BS.lm <- lm(sres.mx ~ mu.mx,
+            data = bs.dta)
+(sBS.lm <- summary(BS.lm))
+```
+
+The value of the coefficient of `mu.mx` is `r round(coef(BS.lm)[2], 4)`,
+and from the summary information we can see that it is significant.
+
+We can also show the diagnostic plot with the linear regression line.
+
+```{r}
+#| echo: true
+#| message: false
+
+ggplot(data = bs.dta,
+       mapping = aes(x = mu.mx,
+                     y = sres.mx)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals")
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Fit a linear regression line to the points shown in 
+@fig-BS-FV-vs-SR
+to show that there is an upward-sloping pattern in the residuals.
+
+:::
+
+::: {.pmmsol}
+
+We fit a linear model to the points shown in
+@fig-BS-FV-vs-SR
+as follows:
+
+```{r}
+BS.lm <- lm(sres.mx ~ mu.mx,
+            data = bs.dta)
+(sBS.lm <- summary(BS.lm))
+```
+
+The value of the coefficient of `mu.mx` is `r round(coef(BS.lm)[2], 4)`,
+and from the summary information we can see that it is significant.
+
+We can also show the diagnostic plot with the linear regression line.
+
+```{r}
+#| echo: true
+#| message: false
+
+ggplot(data = bs.dta,
+       mapping = aes(x = mu.mx,
+                     y = sres.mx)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals")
+```
+
+:::
+
+:::
+
+A pattern in the residuals would normally suggest that our model does
+not fit the data well.
+In an OLS situation, this would be correct and we
+would conclude that our model does not capture the underlying pattern
+in the data.
+But our situation is more complex than OLS and the
+upward-sloping pattern we are seeing in 
+@fig-BS-FV-vs-SR
+is what we should expect.
+
+The pattern we see is the result of shrinking our estimates toward
+the overall mean.
+To illustrate the effect,
+@fig-BS-shrinkage-effect
+shows four panels.
+The top-left panel displays the response variable on the $y$-axis and the
+risk group on the $x$-axis.
+The risk groups have been ordered from the smallest fitted value based on the
+LMM to the largest.
+The fitted values from the mixed model are the credibility-weighted values
+given by
+$$
+  \hat{y}_{jt} = Z_j \, \bar{y}_{j}  + (1 - Z_j) \, \bar{y},
+$$
+where $\bar{y}_j$ is the average response value for group $j$,
+$\bar{y}$ is the collective average, and $Z_j$ is the credibility factor
+given by
+$$
+  Z_j = \frac{w_{j\bullet}}{w_{j\bullet} + \hat{\sigma}^2 / \hat{\sigma}_b^2}.
+$$
+
+```{r}
+#| include: false
+
+rsk <- bs.dta |>
+  group_by(risk) |>
+  summarize(W.jb = sum(W.jt),
+            X.bar.j = sum(W.jt * X.jt) / sum(W.jt),
+            mu.j = first(mu.mx))
+rsk$mu.rnk <- rank(rsk$mu.j)
+dtb <- left_join(bs.dta, rsk, by = "risk")
+```
+
+```{r}
+#| echo: false
+#| label: fig-BS-shrinkage-effect
+#| fig-cap: "The top-left panel shows the simulated B&uuml;hlmann--Straub data where the risk groups have been ordered from the smallest fitted value to the largest. The fitted values come from the LMM and coincide with the credibility-weighted values. The top-right panel shows the average response values (light blue circles) and the bottom-left panel shows the fitted values (pink circles) for each risk group. The bottom-right panel combines all three panels.  Note that the fitted values (pink circles) have been shrunk toward the overall mean value of approximately 80."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p1 <- ggplot(data = dtb,
+             mapping = aes(x = mu.rnk,
+                           y = X.jt)) + 
+  geom_point(color = "gray", pch = 1) + 
+  labs(x = "Risk Group",
+       y = "Response Value")
+
+p2 <- p1 + geom_point(data = rsk,
+                      mapping = aes(x = mu.rnk,
+                                    y = X.bar.j),
+                      color = "lightblue")
+
+p3 <- p1 + geom_point(data = rsk,
+                      mapping = aes(x = mu.rnk,
+                                    y = mu.j),
+                      color = "pink")
+
+p4 <- p2 + geom_point(data = rsk,
+                      mapping = aes(x = mu.rnk,
+                                    y = mu.j),
+                      color = "pink")
+
+(p1 + p2) / (p3 + p4)
+```
+
+For this simulated data, each risk group has five observations, and from 
+the plot you can see that the *average for each risk group* ranges from 
+below 60 to a bit more than 100.
+The top-right panel includes this average $\bar{y}_j$ for each risk
+group (light blue colored circles).
+
+The bottom-left panel shows the fitted values from the mixed model 
+(pink circles).
+These values increase steadily from left to right.
+Finally, in the bottom-right panel we have superimposed all three panels,
+and we can clearly see that on both ends of the graph the fitted values
+are closer to the collective mean.
+These fitted values have been shrunk from the individual group average
+$\bar{y}_j$ to the collective average $\bar{y}$.
+
+When we compute the response residuals from this model, we are taking the
+difference between actual values (shown as light gray circles) and the
+risk group's fitted values (shown in pink).
+These differences are not centered at the mean value for each risk group
+(shown in light blue) and as we approach both extremes the discrepancy
+increases.
+On the left-hand side the differences are more negative, 
+and on the right-hand side they are more positive.
+Therefore, a residuals-versus-fitted values plot shows a positive 
+trend line.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+There are three quantities that affect the amount of shrinkage that
+will occur---the weights $w_{jt}$, the between risk variance
+$\sigma_b^2$ (VHM), and the within
+risk variance $\sigma^2$ (EVPV).
+
+Take each one in turn, and using the credibility factors $Z_j$, 
+determine the effect on shrinkage that increasing
+or decreasing each quantity will have.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+The amount of shrinkage is controlled by the size of the credibility factor,
+and for the B&uuml;hlmann--Straub model we know that it is given by
+$$
+  Z_j = \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2 / \sigma_b^2}.
+$$
+If the value of $Z_j$ is close to 1, there will be very little shrinkage
+and the fitted values (credibility estimates) will be close to the average
+of the group $\bar{y}_j$.
+
+If we increase the weights $w_{jt}$, then $Z_j$ will approach 1.
+If the within-group variance $\sigma^2$ decreases toward zero, then the
+credibility factor $Z_j$ will approach 1.
+Also, if the between-group variance $\sigma_b^2$ increases toward infinity,
+then again $Z_j$ will approach 1 and the amount of shrinkage will decrease.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+There are three quantities that affect the amount of shrinkage that
+will occur---the weights $w_{jt}$, the between risk variance
+$\sigma_b^2$ (variance of the hypothetical means), and the within
+risk variance $\sigma^2$ (expected value of the process variance).
+
+Take each one in turn, and using the credibility factors $Z_j$, 
+determine the effect on shrinkage that increasing
+or decreasing each quantity will have.
+
+:::
+
+::: {.pmmsol}
+
+The amount of shrinkage is controlled by the size of the credibility factor,
+and for the B&uuml;hlmann--Straub model we know that it is given by
+$$
+  Z_j = \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2 / \sigma_b^2}.
+$$
+If the value of $Z_j$ is close to 1, there will be very little shrinkage
+and the fitted values (credibility estimates) will be close to the average
+of the group $\bar{y}_j$.
+
+If we increase the weights $w_{jt}$, then $Z_j$ will approach 1.
+If the within-group variance $\sigma^2$ decreases toward zero, then the
+credibility factor $Z_j$ will approach 1.
+Also, if the between-group variance $\sigma_b^2$ increases toward infinity,
+then again $Z_j$ will approach 1 and the amount of shrinkage will decrease.
+:::
+
+:::
+
+In
+@sec-appendix-a,
+we write a function to simulate datasets that conform to the 
+B&uuml;hlmann--Straub model.
+We can use this function to explore how different values for the number
+of risks per group and within-/between-group variances affect the amount
+of shrinkage.
+
+```{r}
+#| include: false
+
+rm(list = ls(pattern = "s*[Bb][Ss]"))
+rm(list = ls(pattern = "p+"))
+rm(rsk, dtb, weights)
+```
+
+
+## Some Linear Mixed-Model Theory {#sec-some-linear-mixed-model-theory}
+
+In the previous section, we estimated the LMMs corresponding
+to the balanced B&uuml;hlmann and the B&uuml;hlmann--Straub models.
+We could go straight into Hachemeister's regression model to
+illustrate that, too, but it would be better to understand some of the key
+constructions needed for these models to appreciate more complex situations.
+Therefore, let's start by laying down some standard notation and
+constructions for the LMM.
+
+For a single level of grouping, we follow the discussion in
+@freesLongitudinalDataAnalysis1999
+closely, and we can write down the LMM as
+\begin{gather*}
+  y_j = X_j \beta + Z_j b_j + \epsilon_j, 
+  \qquad j = 1, 2, \dots, J \\
+  b_j \sim \mathcal{N}\left(0, D \right), \qquad
+  \epsilon_j \sim \mathcal{N}\left(0, R_j \right),
+\end{gather*}
+where index $j$ denotes the grouping factor, $J$ is the total number of
+groups, $y_j$ is a vector of response values for group $j$ with 
+dimension $n_j \times 1$, $X_j$ is the fixed-effects design matrix with
+dimensions $n_j \times p$, and $Z_j$ is the random-effects design matrix 
+with dimensions $n_j \times q$.
+The fixed-effects linear predictor consists of $p$ explanatory variables,
+and so we have $\beta = (\beta_1, \beta_2, \dots, \beta_p)$ as fixed-effects
+coefficients.
+We also have $q$ random-effects explanatory variables.
+
+We assume that the responses between groups are independent, but we allow
+for serial correlation and weighting by assuming that the 
+variance-covariance matrix for the error terms $\epsilon_j$ is an 
+$n_j \times n_j$ matrix, which we write as $R_j$.
+We also assume that the expected value of the error terms is zero, that is,
+$\mathbb{E}[\epsilon_j] = 0$.
+Moreover, we assume that the group-specific effects $b_j$ are independent
+and identically distributed with $\mathbb{E}[b_j] = 0$ and 
+variance-covariance matrix $D$ with dimensions $q \times q$.
+Note that the variance-covariance matrix $D$ does not depend on
+the group.
+And we assume that the group-specific effects and the error terms are
+independent---that is, we have that their covariance 
+$\text{Cov}(b_{ju}, \epsilon_{kv})$ is zero for all combinations of
+$j, u, k$, and $v$.
+Hence, the variance-covariance matrix for response vector $y_j$ is
+\begin{align*}
+  \text{Var}(y_j) &= \text{Var}(X_j \beta + Z_j b_j + \epsilon_j) \\
+                  &= \text{Var}(Z_j b_j + \epsilon_j) \\
+                  &= \text{Var}(Z_j b_j) + \text{Var}(\epsilon_j) + 2 \text{Cov}(Z_j b_j, \epsilon_j) \\
+                  &= Z_j D Z_j^t + R_j \\
+                  &= V_j,
+\end{align*}
+where a superscript "$t$" denotes the transpose operation.
+So we have that the variance-covariance matrix $V_j$ has dimension 
+$n_j \times n_j$, and assume that this matrix is invertible.
+We also know that this matrix is symmetric, and if we let 
+$N = \max(n_1, n_2, \dots, n_J)$ be the maximum number of observations
+we have across all groups, then this matrix $V_j$ has at most 
+$N(N + 1) / 2$ unknown values.
+So let $\tau$ be the vector of unknown values, and we can denote the
+dependence of $V_j$ on this vector via $V_j(\tau)$.
+
+For the balanced B&uuml;hlmann example we discussed in
+@sec-greatest-accuracy-credibility,
+we have $J = 3$ groups observed over $N = 4$ periods, and each group had
+the same number of observations, that is, $n_j = 4$ for all $j = 1, 2, 3$.
+The vectors of observations were
+\begin{align*}
+  y_1^t &= (625, 675, 600, 700) \\
+  y_2^t &= (750, 800, 650, 800) \\
+  y_3^t &= (900, 700, 850, 950).
+\end{align*}
+
+The design matrices $X_j$ and $Z_j$ are all of dimension $4 \times 1$ and 
+have only an intercept as explanatory variable, namely $p = q = 1$---thus
+$$
+  X_j = Z_j = \begin{bmatrix}
+          1 \\
+          1 \\
+          1 \\
+          1 \\
+        \end{bmatrix}.
+$$
+
+The variance-covariance matrix of the group effects $D$ is of dimension
+$1 \times 1$, and we labeled it as $\sigma_b^2$ in this chapter and 
+as $\tau^2$ in 
+@sec-greatest-accuracy-credibility.
+We also assumed that error terms $\epsilon_j$ were independent of each
+other, and so we have
+$$
+  R_j = \sigma^2
+  \begin{bmatrix}
+    1 & 0 & 0 & 0 \\
+    0 & 1 & 0 & 0 \\
+    0 & 0 & 1 & 0 \\
+    0 & 0 & 0 & 1
+  \end{bmatrix}.
+$$
+And the variance-covariance matrix of the responses for group $j$, 
+$\text{Var}(y_j) = V_j$, is equal to 
+\begin{align*}
+  V_j(\tau) &= Z_j D Z_j^t + R_j \\
+      &= \begin{bmatrix}
+          1 \\
+          1 \\
+          1 \\
+          1 \\
+        \end{bmatrix} D \begin{bmatrix} 1 & 1 & 1 & 1 \end{bmatrix} + \sigma^2
+        \begin{bmatrix}
+          1 & 0 & 0 & 0 \\
+          0 & 1 & 0 & 0 \\
+          0 & 0 & 1 & 0 \\
+          0 & 0 & 0 & 1
+        \end{bmatrix} \\
+      &= \begin{bmatrix}
+           \sigma_b^2 + \sigma^2 & \sigma_b^2 & \sigma_b^2 & \sigma_b^2 \\
+           \sigma_b^2 & \sigma_b^2 + \sigma^2 & \sigma_b^2 & \sigma_b^2 \\
+           \sigma_b^2 & \sigma_b^2 & \sigma_b^2 + \sigma^2 & \sigma_b^2 \\
+           \sigma_b^2 & \sigma_b^2 & \sigma_b^2 & \sigma_b^2 + \sigma^2
+         \end{bmatrix};
+\end{align*}
+therefore, the vector of variance components is 
+$\tau = (\sigma_b^2, \sigma^2)$.
+
+The entire model for all observations would be assembled by stacking 
+the response vectors $y_1, y_2$, and $y_3$ into a single $12 \times 1$
+column vector.
+The grand design matrices $X$ and $Z$ are of dimension $12 \times 3$, 
+where the first column has four 1s and zeroes after; the second column has
+four zeroes, then four 1s, and then zeroes; and the final column starts with
+zeroes and ends with four 1s:
+$$
+\begin{bmatrix}
+  625 \\
+  675 \\
+  600 \\
+  700 \\
+  750 \\
+  800 \\
+  650 \\
+  800 \\
+  900 \\
+  700 \\
+  850 \\
+  950
+\end{bmatrix} = 
+\begin{bmatrix}
+  1 & 0 & 0 \\
+  1 & 0 & 0 \\
+  1 & 0 & 0 \\
+  1 & 0 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 0 & 1 \\
+  0 & 0 & 1 \\
+  0 & 0 & 1 \\
+  0 & 0 & 1
+\end{bmatrix} 
+\begin{bmatrix}
+  \beta_1 \\
+  \beta_2 \\
+  \beta_3
+\end{bmatrix} +
+\begin{bmatrix}
+  1 & 0 & 0 \\
+  1 & 0 & 0 \\
+  1 & 0 & 0 \\
+  1 & 0 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 1 & 0 \\
+  0 & 0 & 1 \\
+  0 & 0 & 1 \\
+  0 & 0 & 1 \\
+  0 & 0 & 1
+\end{bmatrix} 
+\begin{bmatrix}
+  b_1 \\
+  b_2 \\
+  b_3
+\end{bmatrix} +
+\begin{bmatrix}
+  \epsilon_{11} \\
+  \epsilon_{12} \\
+  \epsilon_{13} \\
+  \epsilon_{14} \\
+  \epsilon_{21} \\
+  \epsilon_{22} \\
+  \epsilon_{23} \\
+  \epsilon_{24} \\
+  \epsilon_{31} \\
+  \epsilon_{32} \\
+  \epsilon_{33} \\
+  \epsilon_{34}
+\end{bmatrix},
+$$
+with the variance of the response vector equal to a block diagonal matrix
+of dimension $12 \times 12$ where the first $4 \times 4$ block is $V_1$,
+the second $4 \times 4$ diagonal block is $V_2$, and the final $4 \times 4$
+diagonal block is $V_3$.
+All other entries are zero.
+$$
+  V = \begin{bmatrix}
+         V_1 &     &     \\
+             & V_2 &     \\
+             &     & V_3
+      \end{bmatrix}.
+$$
+
+The GLS estimator of the fixed-effects
+$\beta$ assumes that the variance components $\tau$ are known and is
+given by
+$$
+  \beta_{\text{GLS}} = \left(\sum_{j=1}^J X_j^t V_j^{-1} X_j\right)^{-1}
+    \left(\sum_{j=1}^J  X_j^t V_j^{-1} y_j\right).
+$$ {#eq-GLS-estimator}
+In the balanced B&uuml;hlmann model we have $\beta_{\text{GLS}} = \bar{y}$,
+where $\bar{y}$ is the average of all the response values.
+To see this, first note that the variance-covariance matrix $V_j$ has
+dimension $n_j \times n_j$ and is of the form ($4 \times 4$ example)
+$$
+  V_j = \begin{bmatrix}
+    a & b & b & b \\
+    b & a & b & b \\
+    b & b & a & b \\
+    b & b & b & a
+  \end{bmatrix},
+$$
+where $a = \sigma_b^2 + \sigma^2$ and $b = \sigma_b^2$.
+Because this matrix has a lot of structure, its inverse is
+relatively easy to figure it out by looking at small cases.
+In our example, we have
+$$
+  V_j^{-1} = \frac{1}{a(a + 2b) - 3b^2}
+  \begin{bmatrix}
+    a + 2b & -b & -b & -b \\
+    -b & a + 2b & -b & -b \\
+    -b & -b & a + 2b & -b \\
+    -b & -b & -b & a + 2b
+  \end{bmatrix},
+$$
+which we can quickly verify by calculating a couple of entries for 
+the matrix product $V_j^{-1}V_j$.
+For an $n \times n$ matrix, the diagonal in the inverse matrix has the
+form $a + (n-2)b$ and the off-diagonal elements are all $-b$.
+The multiplicative constant in front of the matrix is equal to
+$\left[a(a + (n-2)b) - (n-1)b^2 \right]^{-1}$.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Verify that the matrix product $V_j^{-1} V_j$ is the identity
+matrix by calculating the $(1,1)$ and $(2,1)$ entries of this matrix
+and noting that all other entries would be equal to one of these two
+calculations.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+For the $(1,1)$ entry we need to take the dot product of the first 
+row of $V_j^{-1}$ and the first column of $V_j$.
+Ignoring the scalar multiplier in front of $V_j^{-1}$, we have
+$$
+  \begin{bmatrix}
+    a + 2b & -b & -b & -b
+  \end{bmatrix}
+  \begin{bmatrix}
+    a \\ b \\ b \\ b
+  \end{bmatrix} = a (a + 2b) -3b^2.
+$$
+This is equal to the scalar multiplier in front of $V_j^{-1}$, and so
+the $(1,1)$ entry of the product $V_j^{-1} V_j$ is equal to 1.
+
+For the $(2,1)$ entry we need to calculate the dot product of the second
+row of $V_j^{-1}$ and the first column of $V_j$:
+$$
+  \begin{bmatrix}
+    -b & a + 2b & -b & -b \\
+  \end{bmatrix}
+  \begin{bmatrix}
+    a \\ b \\ b \\ b
+  \end{bmatrix} = -ab + ab + 2b^2 - 2b^2 = 0.
+$$
+Hence, the $(2,1)$ entry is zero.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Verify that the matrix product $V_j^{-1} V_j$ is the identity
+matrix by calculating the $(1,1)$ and $(2,1)$ entries of this matrix
+and noting that all other entries would be equal to one of these two
+calculations.
+
+:::
+
+::: {.pmmsol}
+
+For the $(1,1)$ entry we need to take the dot product of the first 
+row of $V_j^{-1}$ and the first column of $V_j$.
+Ignoring the scalar multiplier in front of $V_j^{-1}$, we have
+$$
+  \begin{bmatrix}
+    a + 2b & -b & -b & -b
+  \end{bmatrix}
+  \begin{bmatrix}
+    a \\ b \\ b \\ b
+  \end{bmatrix} = a (a + 2b) -3b^2.
+$$
+This is equal to the scalar multiplier in front of $V_j^{-1}$, and so
+the $(1,1)$ entry of the product $V_j^{-1} V_j$ is equal to 1.
+
+For the $(2,1)$ entry we need to calculate the dot product of the second
+row of $V_j^{-1}$ and the first column of $V_j$:
+$$
+  \begin{bmatrix}
+    -b & a + 2b & -b & -b \\
+  \end{bmatrix}
+  \begin{bmatrix}
+    a \\ b \\ b \\ b
+  \end{bmatrix} = -ab + ab + 2b^2 - 2b^2 = 0.
+$$
+Hence, the $(2,1)$ entry is zero.
+
+:::
+
+:::
+
+Since the design matrix $X_j$ is just a column of 1s in the balanced 
+B&uuml;hlmann model, the matrix product $X_j^t V_j^{-1}$ is equal to the
+$1 \times N$ matrix, where each entry is the sum of a 
+column of $V_j^{-1}$---that is, we have 
+$$
+  X_j^t V_j^{-1} = 
+  \frac{\begin{bmatrix} a-b & a-b & \cdots & a-b\end{bmatrix}}{a(a + (N - 2)b) - (N-1)b^2},
+$$
+where the numerator is a vector of length $N$ and the denominator
+is a scalar.
+Multiplying the above vector by $X_j$ on the right, that is, summing up all
+the entries in the vector, we obtain the $1 \times 1$ matrix
+$$
+  X_j^t V_j^{-1} X_j = 
+  \frac{N(a-b)}{a(a + (N-2)b) - (N-1)b^2}.
+$$
+Similarly, for the second term in 
+@eq-GLS-estimator,
+we have the $1 \times 1$ matrix
+$$
+  X_j^t V_j^{-1} y_j = 
+  \frac{(a-b)(y_{j1} + y_{j2} + \cdots + y_{jN})}{a(a + (N-2)b) - (N-1)b^2}.
+$$
+Finally, noting that the denominators are all the same, we can sum
+these expressions across $j = 1, 2, \dots, J$, resulting in 
+\begin{align*}
+        \left(\sum_{j=1}^J X_j^t V_j^{-1} X_j\right)^{-1}
+        \left(\sum_{j=1}^J  X_j^t V_j^{-1} y_j\right)
+        &= \frac{a(a + (N-2)b) - (N-1)b^2}{JN(a-b)}\cdot \\
+        &\phantom{{}={}\qquad}
+        \frac{(a-b)(y_{11} + y_{12} + \cdots + y_{JN})}{a(a + (N-2)b) - (N-1)b^2} \\
+        &= \frac{y_{11} + y_{12} + \cdots + y_{JN}}{JN} = \bar{y}.
+\end{align*}
+Therefore, we have that the GLS estimator of
+$\beta$ in the balanced B&uuml;hlmann model is equal to the sample mean.
+
+
+For the B&uuml;hlmann--Straub model, we only have to make some minor
+changes to the specification in the LMM we used in 
+the balanced B&uuml;hlmann case.
+We allow an unequal number of observations $n_j$ for each group,
+and we need to incorporate weights $w_{jt}$ for each observation
+so that larger weights result in a smaller within-group variance;
+hence, we will set the $n_j \times n_j$ variance-covariance matrix
+$R_j$ to be equal to 
+$$
+  R_j = \begin{bmatrix}
+          \frac{\sigma^2}{w_{jt}} & 0 & \cdots & 0 \\
+          0 & \frac{\sigma^2}{w_{jt}} & \cdots & 0 \\
+          \vdots & \vdots & \ddots & \vdots \\
+          0 & 0 & \cdots & \frac{\sigma^2}{w_{jt}} \\
+        \end{bmatrix}.
+$$
+This is the same construction we would use when specifying a weighted
+least squares regression.
+
+The design matrices $X_j$ and $Z_j$ both have dimension $n_j \times 1$,
+and all entries are equal to 1.
+The variance-covariance matrix $D$ has dimension $1 \times 1$, and we
+write its single entry as $\sigma_b^2$.
+The parameters to be estimated are $\beta$ and 
+$\tau = (\sigma_b^2, \sigma^2)$.
+
+
+To summarize, the LMM with one level of grouping
+can be written as
+$$
+  Y_j = X_j \beta + Z_j b_j + \epsilon_j, \qquad j = 1, 2, \dots, J,
+$$
+where $j$ is the grouping variable and $n_j$ is the number of observations
+for the $j$th group.
+The fixed-effects vector $\beta$ has $p$ components because the design
+matrices $X_j$ have $p$ columns representing the explanatory variables.
+The matrices $Z_j$ have dimension $n_j \times q$ as we have $q$ explanatory
+variables for the random effects.
+The random vectors $b_j$ and $\epsilon_j$ have dimension $n_j$ and follow
+normal distributions $\mathcal{N}(0, D)$ and $\mathcal{N}(0, R_j)$,
+where the matrices $D$ and $R_j$ are the variance-covariance matrices
+with dimensions $q \times q$ and $n_j \times n_j$, respectively.
+These matrices must be symmetric and positive definite (otherwise they
+are not valid variance-covariance matrices).
+
+
+## Hachemeister's Regression Model Revisited
+
+For the Hachemeister, data we have the severity of claims over 12
+quarters from a sample of five states.
+We have seen from
+@fig-hachemeister-data
+that different intercepts and slopes for these states are a reasonable
+starting point, and we would like to make inferences from the larger
+population of states that the five came from.
+Therefore, we will specify a LMM where the linear 
+predictor for the fixed effects has an intercept and the variable
+`time`, and we use the same linear predictor for the random effects.
+This way we will get a random intercept and a random slope for each
+state.
+
+```{r}
+hm.dta <- read_csv("hachemeister-data.csv",
+                   col_types = "fidd")
+```
+
+A natural way to specify the LMM in the `lmer()`
+function is as follows:
+
+```{r}
+hm.mixed.1 <- lmer(severity ~ time + (time | state),
+                   data = hm.dta,
+                   weights = claims/1000)
+```
+
+We'll discuss the message displayed regarding the boundary fit
+after we present the results of the fit.
+
+The first part of the right-hand side of the formula, 
+in this case just `time`,
+represents the fixed effects, and the second part, within parentheses,
+that is, `(time | state)`, is the random component.
+For both components we did not specify an intercept because **R** includes
+one by default.
+The vertical bar within the random component separates the specification
+for the linear predictor and the grouping variable, for this example,
+`state`.
+For the weights, we have divided the number of claims by 1,000 to keep
+the numbers in the calculations from getting too large and causing numerical
+difficulties in the estimation algorithm.
+
+Notice that we have not provided any instructions on what kind of
+variance-covariance matrices $D$ or $R_j$ we want to use.
+The matrix $D$ is of dimension $2 \times 2$ (the $Z_j$ matrices have
+two columns: intercept and `time`), and the matrices $R_j$ are of dimension
+$12 \times 12$ because for each `state` we have 12 quarterly observations.
+The default behavior for `lmer()` is to have $R_j$ be a diagonal matrix
+with entries equal to $\sigma^2 / w_{jt}$, since we specified a `weights`
+argument in the call.
+The matrix $D$ will be a general $2 \times 2$ variance-covariance matrix.
+The $(1,1)$ position is the variance of the intercept, the $(2,2)$ position
+is the variance of the slope, and the $(2,1)$ or $(1,2)$ positions are the
+covariance between intercept and slope.
+Thus for this model we will be estimating two fixed effects, $\beta_0$ and
+$\beta_1$, three entries for the matrix $D$, and the residual variance
+$\sigma^2$.
+
+The summary of the above fitted model is provided below, where you will
+see two sections---one labeled "Random effects" and the other
+"Fixed effects."
+
+```{r}
+summary(hm.mixed.1)
+```
+
+The fixed-effects section tells us, for this example, that the population
+average severity at time $t = 0$ is 
+$`r format(round(fixef(hm.mixed.1)[1], 2), big.mark = ",")`
+and that, for each additional quarter, average severity will increase by
+$`r round(fixef(hm.mixed.1)[2], 2)`.
+Also we have the standard errors of these coefficients and their $t$-values,
+that is, the estimate divided by its standard error.
+We have evidence in our data that the fixed effects are different from zero.
+
+From the random effects section, we have almost all the information
+for the remaining parameters.
+The column labeled `Variance` has the variances for the intercept and  
+for the variable `time`, as well as the residual variance 
+$\hat{\sigma}^2 = `r round(sigma(hm.mixed.1)^2, 1)`$.
+Note that the column labeled `Std.Dev.` is 
+*not the standard error of the estimated variances*.
+This column is just the square root of the entries in the `Variance`
+column.
+We do not have the estimated covariance between the intercept and `time`,
+but we can get that information by extracting the entire variance-covariance
+matrix $D$ and the residual variance too.
+
+```{r}
+print(VarCorr(hm.mixed.1), comp = "Variance")
+```
+
+The very last line of the summary output shows the message:
+`boundary (singular) fit: see help('isSingular')`.
+This tells us that during the optimization one of our parameters has
+reached its boundary.
+
+We can compute the eigenvalues of the variance-covariance matrix $D$ via
+
+```{r}
+eigen(VarCorr(hm.mixed.1)$state)$value
+```
+
+and see that the second eigenvalue is essentially zero; hence,
+our matrix $D$ is super close to not being positive definite.
+A positive definite matrix must have all of its eigenvalues positive.
+If at least one of them is zero, then the matrix is positive semidefinite.
+
+This is an indication that the default choice of matrix $D$ with 
+three free parameters is not ideal.
+Therefore, for our next mixed model we will restrict the variance-covariance
+matrix $D$ to be diagonal.
+To specify such a model, we need to tell the `lmer()` function that we
+want independent random components for the intercept and the slope
+parameters even though both use the same grouping variable.
+We do this by specifying *two* random effects in the formula for
+`lmer()`.
+The first one gives us the random intercept and the second, the
+random slope.
+Note that we need to tell **R** explicitly not to include an intercept in
+the second random effect by using `0 + time`.
+
+```{r}
+hm.mixed.2 <- lmer(severity ~ time + (1 | state) + (0 + time | state),
+                   data = hm.dta,
+                   weights = claims/1000)
+summary(hm.mixed.2)
+```
+
+From the random-effects section of the summary output, we see only estimates
+for the diagonal elements of $D$ and the residual variance $\sigma^2$.
+Note that the fixed effects are slightly different than those in our 
+previous model, but for all practical purposes are they are the same.
+The estimated random effects, deviations from the fixed effects,
+for each state are
+
+```{r}
+ranef(hm.mixed.2)$state
+```
+and putting these together with the fixed effects we obtain the
+following credibility-weighted values:
+
+```{r}
+round(fixef(hm.mixed.2) + t(as.matrix(ranef(hm.mixed.2)$state)), 2)
+```
+
+These are not very different from the estimates we got in 
+@sec-credibility-theory (@tbl-HM-estimates),
+and they suffer from the same issues that we noted there.
+Many of the intercepts and slopes are not between the individual
+states and collective estimates.
+
+We cannot easily extract the credibility matrices from the fitted model,
+but Table 1 of 
+@freesLongitudinalDataAnalysis1999
+provides an explicit formula to calculate these matrices from information
+we do readily have from the model.
+The formula is
+$$
+  A_j = \frac{\text{det}(D W_j)I_2 + \hat{\sigma}^2 D W_j}{\text{det}(D W_j) + \hat{\sigma}^2 \text{trace}(D W_j) + \hat{\sigma}^4},
+$$ {#eq-frees-credibility-matrix}
+where $I_2$ is a $2 \times 2$ identity matrix, $W_j$ is given by
+$$
+  W_j = \begin{bmatrix}
+          \displaystyle \sum_{k=1}^{n_j} w_{jk} & 
+          \displaystyle \sum_{k=1}^{n_j} t_{jk} w_{jk} \\
+          \displaystyle \sum_{k=1}^{n_j} t_{jk} w_{jk} & 
+          \displaystyle \sum_{k=1}^{n_j} t_{jk}^2 w_{jk}
+        \end{bmatrix},
+$$
+"det" is the determinant of a matrix, and "trace" is the sum of the diagonal
+elements of a square matrix.
+This formula for the credibility matrix $A_j$ matches the formula we 
+developed in @sec-credibility-theory, @eq-credibility-matrix-final-form.
+And as we saw in that chapter, the reason for credibility-weighted 
+estimates not to lie between the stand-alone and collective estimates
+is that the matrix $A_j$ is not diagonal.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Show that
+@eq-frees-credibility-matrix
+matches
+@eq-credibility-matrix-final-form in the case where the variance-covariance
+matrix $D$ is diagonal with entries $\tau_0^2$ and $\tau_1^2$.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+Before looking at @sec-appendix-b for a derivation, try it yourself.
+Start with the denominator in
+@eq-frees-credibility-matrix
+and then work on the numerator.
+The denominator is a just a number, and the numerator is a $2 \times 2$
+matrix.
+The calculations are straightforward but tedious.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Show that
+@eq-frees-credibility-matrix
+matches
+@eq-credibility-matrix-final-form in the case where the variance-covariance
+matrix $D$ is diagonal with entries $\tau_0^2$ and $\tau_1^2$.
+
+:::
+
+::: {.pmmsol}
+
+Before looking at @sec-appendix-b for a derivation, try it yourself.
+Start with the denominator in
+@eq-frees-credibility-matrix
+and then work on the numerator.
+The denominator is a just a number, and the numerator is a $2 \times 2$
+matrix.
+The calculations are straightforward but tedious.
+
+:::
+
+:::
+
+
+We also saw in @sec-credibility-theory that to achieve a diagonal
+credibility matrix we can center the time variable at each group's
+center of gravity.
+We can add a centered time variable, `ctime`, to our dataset via
+
+```{r}
+CG <- with(hm.dta,
+           tapply(time * claims, state, sum) /
+             tapply(claims, state, sum))
+hm.dta$ctime <- hm.dta$time - CG[hm.dta$state]
+rm(CG)
+```
+
+and fit the same LMM by replacing `time` with `ctime`.
+
+```{r}
+hm.mixed.3 <- lmer(severity ~ ctime + (1|state) + (0 + ctime|state),
+                   data = hm.dta,
+                   weights = claims/1000)
+summary(hm.mixed.3)
+```
+
+Note that the fixed effect for the intercept has changed significantly
+because now we are measuring the mean severity at time approximately
+$t = 6.5$ instead of at time $t = 0$.
+Also worth noting is the correlation of the fixed effects shown at the very
+bottom of the summary output.
+Now the intercept and the slope have a zero correlation, whereas in our 
+previous model it was $-0.248$.
+We expected this result because by centering the time variable we have
+made the intercept and the centered time variable orthogonal to each other.
+
+The credibility-weighted estimates from this model are
+
+```{r}
+round(fixef(hm.mixed.3) + t(as.matrix(ranef(hm.mixed.3)$state)), 2)
+```
+
+which now lie between the stand-alone and the collective estimates.
+
+Now that we have an initial model, `hm.mixed.3`, we should check 
+whether our distributional assumptions are valid
+for the data.
+There are two basic assumptions:
+
+1. the within-group errors are independent and identically normally
+   distributed with mean zero and variance $\sigma^2 / w_{jt}$, and 
+   are independent of the random effects, and
+1. the random effects are normally distributed with mean zero and 
+   variance-covariance matrix $D$ that does not depend on the group
+   and are independent for different groups.
+
+
+### Checking Within-Group Errors Assumptions
+
+To assess the within-group residuals we can use a boxplot of standardized
+residuals by state.
+@fig-hm-mixed-3-boxplot-within-residuals
+shows such a plot for the `hm.mixed.3` model where we have also included
+the residual points and a larger blue circle at the mean value of the
+residuals.
+The states have been arranged in order of the size of their interquartile
+range, and we can see that there is an increasing spread.
+Even though all five groups of residuals are centered about zero, their
+spread is not constant.
+This suggests that a single within-group variance, $\sigma^2$, parameter
+may not be correct and we might need to select a more general model where
+each group has its own parameter.
+
+```{r}
+#| include: false
+
+hm.dta$mu <- fitted(hm.mixed.3)
+hm.dta$rPS <- resid(hm.mixed.3, 
+                    type = "pearson", 
+                    scaled = TRUE)
+iqr <- tapply(hm.dta$rPS, hm.dta$state, 
+              function(x) diff(quantile(x, c(0.25, 0.75))))
+o.iqr <- order(iqr, decreasing = TRUE)
+hm.dta$state.iqr <- fct_relevel(hm.dta$state,
+                                levels(hm.dta$state)[o.iqr])
+rm(iqr, o.iqr)
+```
+   
+```{r}
+#| echo: false
+#| label: fig-hm-mixed-3-boxplot-within-residuals
+#| fig-cap: "Boxplots and underlying data of standardized residuals for the `hm.mixed.3` model. The large blue circle is the average value of the residuals. The states have been ordered by the size of the interquartile range of their residuals."
+
+ggplot(data = hm.dta,
+       mapping = aes(x = rPS,
+                     y = state.iqr)) +
+  geom_vline(xintercept = 0, color = "gray") +
+  geom_boxplot() +
+  geom_jitter(height = 0.2,
+              alpha = 0.3) +
+  stat_summary(fun = mean,
+               geom = "point", pch = 1,
+               color = "blue", size = 2) +
+  labs(x = "Standardized Pearson Residuals",
+       y = "State")
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-hm-mixed-3-diagnostic-plots
+#| fig-cap: "Diagnostic plots for the `hm.mixed.3` model."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p1 <- ggplot(data = hm.dta,
+       mapping = aes(x = mu,
+                     y = rPS,
+                     color = state)) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "Std. Residuals") +
+  theme(legend.position = "none")
+
+p2 <- ggplot(data = hm.dta,
+       mapping = aes(x = mu,
+                     y = abs(rPS),
+                     color = state)) +
+  geom_point() +
+  geom_smooth(mapping = aes(x = mu,
+                            y = abs(rPS)),
+              inherit.aes = FALSE,
+              method = "lm",
+              se = FALSE) +
+  labs(x = "Fitted Values",
+       y = "abs(Std. Residuals)") +
+  theme(legend.position = "none")
+
+p3 <- ggplot(data = hm.dta,
+       mapping = aes(x = mu,
+                     y = severity,
+                     color = state)) +
+  geom_abline(intercept = 0, slope = 1,
+              color = "gray") +
+  geom_point() +
+  coord_cartesian(xlim = c(1000, 2500),
+                  ylim = c(1000, 2500)) +
+  labs(x = "Fitted Values",
+       y = "Actual Values") +
+  theme(legend.position = "none")
+
+p4 <- ggplot(data = hm.dta,
+       mapping = aes(sample = rPS)) +
+  geom_qq() +
+  geom_abline(slope = 1, intercept = 0) +
+  labs(x = "Theoretical Quantiles",
+       y = "Std. Residuals") +
+  theme(legend.position = "none")
+
+(p1 + p2) / (p3 + p4)
+rm(list = ls(pattern = "p+"))
+```
+
+@fig-hm-mixed-3-diagnostic-plots
+shows other diagnostic plots to assess the assumptions about the 
+within-group residuals for the `hm.mixed.3` model.
+The top-row panels confirm that the residuals do not have constant
+variability by state.
+The top-left plot shows a fanning out of the residuals as the fitted values
+increase in size.
+The top-right panel displays the absolute value of the residuals against the
+fitted values, and we have superimposed a least squares estimated trend line
+that clearly shows our residuals spreading out as the fitted values increase.
+
+The bottom-left panel is an actual-versus-expected plot together with the 
+line $y = x$.
+It looks like we have most points scattered around the line $y = x$.
+There is one possible outlier: the point with coordinates close to
+$(1400,2000)$.
+On the bottom right, we have displayed a QQ plot.
+We would like the points to be on the line $y = x$, and most of them do follow
+this pattern.
+But in the lower-left corner, as the theoretical quantiles increase toward
+negative infinity, all the points are above the line $y = x$.
+This tells us that our data has a thinner left-hand tail compared with the
+normal distribution.
+
+
+### Checking Random Effects Assumptions
+
+The second assumption we need to check is the one about the random effects.
+They should be normally distributed with a mean of zero and
+variance-covariance matrix $D$.
+For Hachemeister's data we only have five observations, and so it will be
+difficult to draw definitive conclusions.
+
+```{r}
+#| include: false
+
+tbl <- pivot_longer(ranef(hm.mixed.3)$state,
+                    cols = 1:2,
+                    names_to = "term",
+                    values_to = "estimate")
+ta <- filter(tbl, term == "(Intercept)") 
+ta <- ta[order(ta$estimate),]
+ta$f.val <- (1:5 - 0.5) / 5
+ta$qn <- qnorm(ta$f.val)
+tb <- filter(tbl, term == "ctime")
+tb <- tb[order(tb$estimate),]
+tb$f.val <- (1:5 - 0.5) / 5
+tb$qn <- qnorm(ta$f.val)
+tbl <- bind_cols(rep(1:5, each = 2),
+                 bind_rows(ta, tb))
+rm(ta,tb)
+```
+
+```{r}
+#| echo: false
+#| label: fig-hm-mixed-3-model-normal-plot-random-effects
+#| fig-cap: "QQ plots of the random effects for the Hachemeister `hm.mixed.3` model."
+
+p1 <- ggplot(data = filter(tbl, term == "(Intercept)"),
+             mapping = aes(x = estimate,
+                           y = qn)) +
+  geom_point() +
+  labs(x = "Intercept Random Effects",
+       y = "Std. Normal Quantiles")
+p2 <- ggplot(data = filter(tbl, term == "ctime"),
+             mapping = aes(x = estimate,
+                           y = qn)) +
+  geom_point() +
+  labs(x = "ctime Random Effects",
+       y = "Std. Normal Quantiles")
+p1 + p2
+rm(tbl, p1, p2)
+```
+
+@fig-hm-mixed-3-model-normal-plot-random-effects
+displays the QQ plots for the random effects from model `hm.mixed.3`.
+We expect the points in these plots to lie along a straight line.
+In this case the assumption of normality seems reasonable.
+While the points in both panels are not perfectly on a line, their
+departure is not excessive.
+
+We should also check that the random effects follow a multivariate
+normal distribution with mean $\mu = (0,0)$ and variance-covariance
+matrix $D$.
+The probability density function for our two-dimensional example is
+$$
+  f\left(\begin{bmatrix} 
+           x_1 \\ 
+           x_2
+        \end{bmatrix} \right) = 
+  \frac{1}{2\pi\sqrt{\text{det}(D^{})}}\,
+  \exp\left(-\frac{1}{2}
+              \begin{bmatrix}
+                x_1 & x_2
+              \end{bmatrix} D^{-1} 
+              \begin{bmatrix} 
+                x_1 \\ 
+                x_2
+              \end{bmatrix} \right).
+$$
+Note that the value of the density function $f$ depends on $x_1$ and $x_2$
+only through the value of the expression inside the exponential function, 
+namely, through what is called the squared Mahalanobis distance:
+$$
+  d^2 = \begin{bmatrix}
+          x_1 & x_2
+        \end{bmatrix} D^{-1} 
+        \begin{bmatrix} 
+          x_1 \\ 
+          x_2
+        \end{bmatrix} = 
+        ax_1^2 + 2 b x_1 x_2 + c x_2^2,
+$$
+if $D^{-1}$ has diagonal entries equal to $a$ and $c$ and off-diagonal
+entries equal to $b$.
+The set of points $(x_1, x_2)$ with Mahalanobis distance $d^2$ all have
+the same value of the density function $f$; that is, these points 
+create a contour line in the three-dimensional $(x_1, x_2, f([x_1, x_2]^t))$
+surface of the density function.
+
+In our example, the matrix $D$ has been estimated as
+$$
+  D = \begin{bmatrix}
+        70{,}838.77 &   0 \\
+            0    & 446.39 \\
+      \end{bmatrix}.
+$$
+Its inverse, $D^{-1}$, is also diagonal; hence, $b = 0$, and so we can
+see that the set of points $(x_1, x_2)$ that have constant Mahalanobis
+distance form an ellipse whose major and minor axes fall along the $x$
+and $y$ axes.
+
+@fig-hm-mixed-3-model-homogeneity-random-effects
+shows a scatterplot of the random effects for model `hm.mixed.3` along
+with ellipses at a Mahalanobis distance of 1 and 2 standard deviations away 
+from the origin.
+Note that the five points we have available are all within two standard
+deviations.
+
+```{r}
+#| include: false
+
+f <- function(r, sig.1 = 266.15, sig.2 = 21.13, N = 500) {
+  n <- length(r)
+  l <- letters[1:n]
+
+  g <- function(rd) {
+    x <- rd * sig.1 * seq(-1, 1, length = N)
+    y.up <- sig.2 * sqrt(round(rd^2 - (x / sig.1)^2,
+                               digits = 9))
+    tb <- tibble(x = x, y.up = y.up, y.dn = -y.up)
+    return(tb)
+  }
+  tbs <- map(as.list(r), g)
+  tbs <- map2(tbs, as.list(l),
+              ~ bind_cols("gp" = .y, .x))
+  ans <- reduce(tbs, bind_rows)
+  return(ans)
+}
+tbs <- f(c(1,2))
+rm(f)
+```
+
+
+
+```{r}
+#| echo: false
+#| label: fig-hm-mixed-3-model-homogeneity-random-effects
+#| fig-cap: "Scatterplot of estimated random effects for model `hm.mixed.3` along with contour lines that are 1 and 2 standard deviations away from the origin."
+
+ggplot(data = tbs,
+       mapping = aes(x = x,
+                     group = gp)) +
+  geom_line(mapping = aes(y = y.up), color = "gray") +
+  geom_line(mapping = aes(y = y.dn), color = "gray") +
+  geom_point(data = bind_cols(gp = "z",
+                              ranef(hm.mixed.3)$state),
+             mapping = aes(x = `(Intercept)`,
+                           y = ctime,
+                           gp = NULL)) +
+  labs(x = "(Intercept)",
+       y = "Centered Time")
+rm(tbs)
+```
+
+If the variance-covariance matrix $D$ had not been diagonal,
+we would still have elliptical contours, but they would have 
+been rotated around the origin (the mean of our bivariate normal
+distribution is $(0,0)$).
+
+Note that in
+@fig-hm-mixed-3-model-homogeneity-random-effects
+we chose to display the set of points that are a Mahalanobis distance of 
+1 and 2 away from the origin because we are
+all very familiar that, in the one-dimensional standard normal distribution, 
+within these distances we have about 68% and 95% of the total density.
+For a two-dimensional normal distribution these values do not give us the 
+same proportion of the total density.
+To find the appropriate values we need to know that the squared
+Mahalanobis distance $d^2$ has a chi-squared distribution with $p$
+degrees of freedom, where $p$ is the dimension of the multivariate 
+normal distribution.
+
+In our case, $p = 2$ and if we are looking to obtain the same 68% and 
+95% coverage, we must choose the Mahalanobis distance equal to
+the following values:
+
+```{r}
+crit.points <- sqrt(qchisq(c(0.68, 0.95), df = 2))
+names(crit.points) <- c("68%", "95%")
+crit.points
+```
+
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Using the `mvtnorm` package, generate 2,000 multivariate random points
+with mean $\mu = (0,0)$ and variance-covariance matrix
+$$
+  D = \begin{bmatrix}
+        70{,}838 & 0 \\
+        0     & 446
+      \end{bmatrix}.
+$$
+Plot the points using three different colors depending on whether the
+points are within Mahalanobis distance 1, between 1 and 2, and beyond 2.
+Check the proportion of points to discern whether 68% or 95% are
+within Mahalanobis distance 1 or 2 of the origin.
+
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+Let us set up the mean vector $\mu = (0,0)$ and the variance-covariance
+matrix $D$.
+
+```{r}
+N <- 2000
+mu <- c(0,0)
+D <- matrix(c(70838, 0, 0, 446),
+            nrow = 2, ncol = 2)
+```
+
+Using the `rmvnorm()` function we can simulate the points via
+
+```{r}
+set.seed(12837)
+z <- rmvnorm(N, mean = mu, sigma = D)
+```
+
+The object `z` will be a $2{,}000 \times 2$ matrix where each row is one
+simulated point.
+Next we want to compute the Mahalanobis distance for each row $z_i$
+using the formula
+$$
+  \sqrt{(z_i - \mu)^t D^{-1} (z_i - \mu)}.
+$$
+We can do this by using the `apply()` function, and we also need to create a
+categorical variable to distinguish which points are at different
+Mahalanobis distances.
+We will put all of this into a data frame
+
+```{r}
+tb <- as.data.frame(z)
+names(tb) <- c("x", "y")
+tb$md <- apply(z, 1, function(z) sqrt(t(z - mu) %*% 
+                                        solve(D) %*% (z - mu)))
+tb$md.bin.1 <- cut(tb$md, 
+                   breaks = c(-Inf, 1, 2, Inf), 
+                   labels = c("d < 1", "1 <= d < 2", "d >= 2"))
+tb$md.bin.2 <- cut(tb$md,
+                   breaks = c(-Inf, crit.points, Inf),
+                   labels =c("d < 1.509", 
+                             "1.509 <= d < 2.448", 
+                             "d >= 2.448"))
+```
+
+and create the scatterplot.
+
+```{r}
+ggplot(data = tb,
+       mapping = aes(x = x,
+                     y = y,
+                     color = md.bin.1)) +
+  geom_point(alpha = 0.4) +
+  labs(x = "Simulated Intercept Deviations",
+       y = "Simulated Slope Deviations",
+       color = "Distance")
+```
+
+The proportion of points in each colored region is given by
+
+```{r}
+xtabs( ~ md.bin.1, data = tb) / N
+```
+
+Note how we have only about 40% of the points within a Mahalanobis distance
+of 1 and about 86.6% within a distance of 2.
+If we use the correct thresholds given by the chi-squared 
+distribution---namely, 1.509 and 2.448---then we would have the appropriate coverage, as
+shown next.
+
+```{r}
+xtabs( ~ md.bin.2, data = tb) / N
+```
+
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Using the `mvtnorm` package, generate 2,000 multivariate random points
+with mean $\mu = (0,0)$ and variance-covariance matrix
+$$
+  D = \begin{bmatrix}
+        70{,}838 & 0 \\
+        0     & 446
+      \end{bmatrix}.
+$$
+Plot the points using three different colors depending on whether the
+points are within Mahalanobis distance 1, between 1 and 2, and beyond 2.
+Check the proportion of points to discern whether 68% or 95% are
+within Mahalanobis distance 1 or 2 of the origin.
+
+:::
+
+::: {.pmmsol}
+
+Let us set up the mean vector $\mu = (0,0)$ and the variance-covariance
+matrix $D$.
+
+```{r}
+N <- 2000
+mu <- c(0,0)
+D <- matrix(c(70838, 0, 0, 446),
+            nrow = 2, ncol = 2)
+```
+
+Using the `rmvnorm()` function we can simulate the points via
+
+```{r}
+set.seed(12837)
+z <- rmvnorm(N, mean = mu, sigma = D)
+```
+
+The object `z` will be a $2{,}000 \times 2$ matrix where each row is one
+simulated point.
+Next we want to compute the Mahalanobis distance for each row $z_i$
+using the formula
+$$
+  \sqrt{(z_i - \mu)^t D^{-1} (z_i - \mu)}.
+$$
+We can do this by using the `apply()` function, and we also need to create a
+categorical variable to distinguish which points are at different
+Mahalanobis distances.
+We will put all of this into a data frame
+
+```{r}
+tb <- as.data.frame(z)
+names(tb) <- c("x", "y")
+tb$md <- apply(z, 1, function(z) sqrt(t(z - mu) %*% 
+                                        solve(D) %*% (z - mu)))
+tb$md.bin.1 <- cut(tb$md, 
+                   breaks = c(-Inf, 1, 2, Inf), 
+                   labels = c("d < 1", "1 <= d < 2", "d >= 2"))
+tb$md.bin.2 <- cut(tb$md,
+                   breaks = c(-Inf, crit.points, Inf),
+                   labels =c("d < 1.509", 
+                             "1.509 <= d < 2.448", 
+                             "d >= 2.448"))
+```
+
+and create the scatterplot.
+
+```{=latex}
+\clearpage
+```
+
+```{r}
+ggplot(data = tb,
+       mapping = aes(x = x,
+                     y = y,
+                     color = md.bin.1)) +
+  geom_point(alpha = 0.4) +
+  labs(x = "Simulated Intercept Deviations",
+       y = "Simulated Slope Deviations",
+       color = "Distance")
+```
+
+The proportion of points in each colored region is given by
+
+```{r}
+xtabs( ~ md.bin.1, data = tb) / N
+```
+
+Note how we have only about 40% of the points within a Mahalanobis distance
+of 1 and about 86.6% within a distance of 2.
+If we use the correct thresholds given by the chi-squared 
+distribution---namely, 1.509 and 2.448---then we would have the appropriate coverage, as
+shown next.
+
+```{r}
+xtabs( ~ md.bin.2, data = tb) / N
+```
+
+
+:::
+
+:::
+
+```{r}
+#| include: false
+
+rm(N, mu, D, z, tb, crit.points)
+rm(list = ls(pattern = "hm.*"))
+rm(weights)
+```
+
+
+
+## Summary {#sec-lmm-summary}
+
+In this chapter we revisited three classic credibility models,
+
+- the balanced B&uuml;hlmann model,
+- the B&uuml;hlmann--Straub model, and
+- Hachemeister's credibility regression model,
+
+and expressed them in terms of the well-developed branch of
+statistics known as linear mixed models.
+For the practicing actuary, embracing LMMs to
+implement credibility techniques brings substantial benefits.
+By using this theory, we can bring all the machinery that
+statisticians have developed to bear on our applications and
+apply standard software to carry out the necessary computations.
+We also have at our disposal inference techniques and 
+model-checking procedures.
+More importantly, LMMs allow us to capture the
+correlation that exists in many of our datasets, and we have 
+many models to choose from.
+
+We looked closely at LMMs with one level of
+grouping and introduced the concepts of fixed effects and
+random effects.
+One way of thinking about these effects, but perhaps not
+a very good one
+(as pointed out on page 245 of @gelmanDataAnalysisUsing2007), 
+is that fixed effects estimate features of the population 
+from which our sample was taken and we use random effects for 
+those variables whose values are just a sample of the 
+possible values the population has.
+
+One clear disadvantage of the LMM is that
+the random effects and the response variable must be
+normally distributed.
+This restriction is a serious one for actuarial work, but
+in the next chapter we will introduce generalized linear
+mixed models.
+That class of statistical models expands the 
+well-known framework of GLMs that
+many actuaries use to include random effects with
+distributions from the exponential family.
+With such an expanded set of models, actuaries can significantly
+increase their modeling capabilities.
+

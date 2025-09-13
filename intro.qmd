@@ -1,0 +1,233 @@
+
+# Introduction {#sec-introduction}
+
+Generalized linear models (GLMs) made their appearance
+in 1972 with the publication of
+Nelder and Wedderburn's paper "Generalized Linear Models,"
+and software implementing these models, known as GLIM
+(Generalized Linear Interactive Modelling), developed
+by the Working Party on Statistical Computing of the
+Royal Statistical Society
+[@nelderAnnouncementWorkingParty1975]
+appeared three years later.
+Nearly 10 years after Nelder and
+Wedderburn's paper,
+McCullagh and Nelder published their
+monograph *Generalized Linear Models*, and a
+second edition followed in 1989
+[@mccullaghGeneralizedLinearModels1989].
+That publication has been the go-to reference for
+the subject.
+
+In the second half of the '70s and early '80s, several
+publications applied GLMs to the
+premium calculation in motor insurance
+[@couttsMethodsPredictingNumber1975;
+ @couttsActuarialApproachMotor1983;
+ @baxterAnalysisMotorInsurance1977;
+ @baxter1980applications].
+But despite these early contributions, there was no
+widespread adoption within the insurance industry.
+
+Three years after the publication of the second edition of
+McCullagh and Nelder's book, @brockmanStatisticalMotorRating1992
+published a paper that launched the adoption of 
+GLMs in the UK motor insurance market, and 10 years thereafter
+American actuaries embraced GLMs in the
+ratemaking process for auto insurance.
+
+Given the events just described, one might think that 
+statisticians developed the theory and computational
+procedures and then actuaries, slowly, adopted the tools and
+techniques and put them to practical use.
+But such a sequence of events is not quite right.
+
+In 1963, Robert A. Bailey published a paper in
+*Proceedings of the Casualty Actuarial Society* with the title
+"Insurance Rates with Minimum Bias" [@bailey1963insurance].
+In the introduction he writes that the techniques he is about
+to describe are "methods for obtaining insurance rates that 
+are as accurate as possible for each class and territory and
+so on."
+Moreover, he mentions that "many of the techniques presented
+in the paper are already in use by the various bureaus and 
+other ratemakers in one form or another."
+
+The *minimum bias techniques* that Bailey described are now 
+known to be special cases of a GLM as
+shown by @mildenhall1999systematic.
+These techniques were not developed within a statistical
+framework backing them, and thus they do not come with some of the standard 
+diagnostic measures, such as residuals and deviance, that are used to check the 
+model development process.
+Rather, they were created to solve the practical problems that
+actuaries were facing in managing their books of business.
+
+Note that Bailey's paper predates Nelder and Wedderburn's introduction
+of GLMs by about 10 years, and thus one
+might argue that actuaries had developed the proto-idea of GLMs
+before statisticians.
+I wonder what might have happened if actuaries in the '60s and
+'70s had been in closer contact with their fellow statisticians
+as they developed the techniques, tools, and computational procedures
+needed for their jobs.
+Would the insurance industry have embraced GLMs
+much earlier?
+
+I believe that a close working relationship between actuaries
+and statisticians can be fruitful for both parties.
+In this monograph, we want to bring together two seemingly
+unrelated areas, credibility and mixed models, at a level
+accessible to practicing actuaries.
+Therefore, we will not fully develop the theory, but rather present
+enough that the main concepts can be grasped and focus on showing how one
+would implement the ideas through some examples.
+
+The story of the development of credibility theory and mixed models
+has some parallels to the events described above for GLMs.
+
+Credibility theory is a cornerstone of actuarial science
+[@hickmanCredibilityTheoryCornerstone1999], and
+it comes in several flavors---limited
+fluctuation, greatest accuracy, hierarchical, and
+multidimensional, to name a few
+[@buhlmannCourseCredibilityTheory2005].
+Greatest accuracy credibility is also known as 
+B&uuml;hlmann credibility and was developed in the late 1960s
+[@buhlmannExperienceRatingCredibility1967a] and further
+extended by
+@buhlmann1970glaubwurdigkeit.
+Simply put, credibility is the combination of different
+estimates to come up with a single estimate
+[@venterCredibility1996], and though it seems somewhat
+trivial to combine two estimates by linear interpolation, the method
+has far-reaching consequences and applications.
+
+One application of credibility theory is concerned with the 
+estimation of a policyholder's next year's premium in a book of
+business where we have some historical loss information for each
+insured. Whereas
+some policyholders may have a large volume of data, others may
+have very little.
+Credibility theory allows us to combine each policyholder's own
+experience and the experience of the whole portfolio.
+
+About 15 years after B&uuml;hlmann credibility
+and 10 years after GLMs were introduced,
+@lairdRandomEffectsModelsLongitudinal1982a
+published their seminal paper on the linear mixed-effects model
+(also called the linear mixed model, or LMM).
+Up until that point, the linear model and the GLM
+were used to analyze a sample of data where the
+observations were independent and identically distributed.
+Researchers and practitioners were keenly aware that not all
+of the samples they wanted to analyze obeyed that restriction.
+In fact, in many situations statistical and actuarial practitioners
+had a sample of samples---that is, observations came in clusters and
+the number of clusters could be quite large.
+
+One can view the LMM and the generalized linear
+mixed model as the next step in the evolution of the linear and
+generalized linear models, respectively.
+These models can handle data where some of the observations
+are no longer independent of each other.
+
+It seems that credibility and mixed models do not have much in common,
+and for many years statisticians worked on mixed models and actuaries
+worked on credibility and they did not talk to each other very much.
+Both areas flourished and both extended their tools and techniques
+significantly.
+Then, @freesLongitudinalDataAnalysis1999 made the connection
+that some credibility models can seen as special cases of the longitudinal
+data model that can be analyzed with LMMs.
+This connection allows actuaries to use the full power of mixed models
+in developing, fitting, and assessing some credibility models.
+
+We begin our exploration in @sec-glm-review with a review
+of GLMs.
+As most practicing actuaries are acquainted with the theory, we
+will base our review on working through a non-insurance example.
+This choice of dataset is deliberate and
+meant to break any 
+preconceived relationships the reader might have from prior work
+with insurance applications.
+The data analyzed relates to the pulmonary function of children
+and teenagers exposed to cigarette smoke.
+
+@sec-credibility-theory introduces credibility theory, and we focus on the
+work of @buhlmannExperienceRatingCredibility1967a and 
+@buhlmann1970glaubwurdigkeit.
+This area is also known as *greatest accuracy credibility*.
+The expected value of the process variance (EVPV) and the 
+variance of the hypothetical means (VHM) are important concepts that we
+will later see, under different names, in connection with mixed models.
+We end this chapter with the work of
+@hachemeisterCredibilityRegressionModels1975, who applied the ideas of 
+credibility theory to the linear regression model.
+His formulation gives us a random intercept and random slope
+regression model.
+Hachemeister applied his model to a set of insurance data and noticed
+that some of the credibility estimates obtained did not line up
+with some sensible practical considerations.
+Perhaps these initial counterintuitive results stifled the adoption of
+these ideas by other actuaries.
+We will retrace the steps Hachemeister took, see the counterintuitive
+results, and then apply some insight gained along the way to resolve
+the issue.
+
+Next, in @sec-linear-mixed-models,
+we jump onto the statistical bandwagon and explore the ways
+in which statisticians evolved the standard linear model into the
+LMM.
+Instead of starting with the theory, we begin by reformulating 
+the balanced B&uuml;hlmann and the B&uuml;hlmann--Straub models
+in the language of the LMM and note that we get
+the same estimates for the balanced B&uuml;hlmann model and 
+nearly the same estimates for the B&uuml;hlmann--Straub model.
+Then, we present the very basics of the theory of the mixed model
+and apply them to a previous example to show a concrete application.
+We conclude the chapter by revisiting Hachemeister's data and
+applying these new tools.
+
+In @sec-glmm-models, we take the LMM and transform it
+into the *generalized linear mixed model* (GLMM), where we introduce link
+functions and expand the distribution of the response variable from
+a normal distribution to the family of linear exponential distributions.
+With these models we can not only model the response
+variable but also include explanatory variables for the 
+dispersion parameter.
+Modeling the dispersion parameter does not require "mixed model"
+theory.
+We can achieve this by interlocking two 
+GLMs [@nelderJointModelingMean1998].
+But that joint model fits well with the approach we undertake
+in this chapter.
+
+Mixed models, either the linear or the generalized version,
+are more complex and more difficult to estimate.
+We require more information from our data, and the computational 
+procedures to estimate the parameters have more 
+potential points of failure.
+The standard approach to compute the parameters of such models
+is to use maximum likelihood estimation.
+Maximizing the likelihood is a nontrivial task often involving
+analytically intractable integrals.
+Thus we must resort to numerical optimization techniques.
+One such technique is Monte Carlo simulation, which depending on
+the complexity of our model, may require a significant amount
+of time and the assessment that convergence has been achieved.
+
+We will not use Monte Carlo simulation, but rather focus on a
+different development, namely, the use of the theory of 
+*h*-likelihood, which sits somewhere between the Bayesian and
+the frequentist approaches.
+The computational resources needed for this approach, while
+not small, are reasonable.
+
+In the final chapter, the discussion is focused on the application
+of the GLMM to three datasets:
+automobile bodily injury, hospital length of stay, and fleet
+insurance.
+For all three datasets, we present an analysis starting with
+data exploration, moving to model building, and ending with
+diagnostics.

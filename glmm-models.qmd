@@ -1,0 +1,1533 @@
+
+
+# Generalized Linear Mixed Models {#sec-glmm-models}
+
+```{r}
+#| include: false
+#| label: glmm-load-libraries
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(statmod)
+library(lme4)
+library(hglm)
+library(dhglm)
+library(kableExtra)
+library(GGally)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+```
+
+
+## Introduction
+
+In the previous chapter we introduced LMMs and saw
+how three classical credibility models are special cases of the 
+linear mixed model theory.
+LMMs are characterized by having a response variable
+that is normally distributed and by having random effects that are
+also normally distributed.
+These models are an extension of the classical OLS
+model and applicable in many situations.
+But we know that real-world data is richer and more complex than
+the normal distribution can accommodate.
+The extension of the classical linear model to the generalized
+linear model, or GLM, where the response distribution is a member of the
+exponential family, has opened up a new area of techniques and tools 
+well suited to the data and problems that actuaries encounter in
+practice.
+
+Over the past two decades, actuaries have made good use of
+GLMs.
+The next step in expanding such models to more complex data structures
+is to introduce random effects into the GLM framework
+and allow those random effects to have other 
+distributions besides the normal.
+
+Also, another important extension focuses on the dispersion 
+parameter.
+GLM theory keeps the dispersion parameter
+fixed across all observations. 
+From experience, we know that such a fixed parameter is not
+always ideal.
+It would be helpful to link the dispersion parameter to some
+explanatory variables.
+
+In this chapter we introduce an extension of GLMs known as 
+*hierarchical generalized linear models*, or HGLMs, which will allow us
+to have random effects whose distributions come from a broader
+family and to model the dispersion parameter via explanatory
+variables.
+Such models are based on the theory of $h$-likelihood, which
+brings together both Bayesian and frequentist perspectives.
+
+In the next section, we give a brief conceptual introduction to the
+HGLM without delving too much
+into the theory.
+Then, we present several examples of how to use these new 
+models.
+Our discussion follows the work of 
+@leeGeneralizedLinearModels2021
+and 
+@leeDataAnalysisUsing2020 closely.
+
+
+## Hierarchical Generalized Linear Models
+
+HGLMs were introduced in 
+@leeHierarchicalGeneralizedLinear1996a.
+These models use a generalization of the likelihood function
+called *hierarchical* likelihood, or $h$-likelihood.
+The maximization of this extended likelihood, under
+appropriate conditions, gives estimates of both fixed as well
+as random effects and the dispersion parameter.
+
+Starting with the linear model, researchers worked in two directions to
+expand it.
+The first path created the linear mixed-effects model, or LMM, 
+where the linear predictor can have random terms that are normally
+distributed.
+The second path worked on introducing an expanded list of response
+distributions, giving us the GLM.
+The combination of the two yields the generalized linear mixed
+model, or GLMM, with distributions for the response variable from 
+the GLM and random effects in the linear predictor from the LMM.
+
+Also from the GLM framework, practitioners and researchers worked
+at enhancing the capabilities in modeling the variance of the
+response variable.
+GLMs use a single multiplier, $\phi$, the dispersion parameter to
+scale the variance function.
+In many situations, this single parameter is not adequate to capture
+the volatility of the response, so a link function and a linear
+predictor were introduced for the dispersion parameter, giving rise
+to *joint GLMs*.
+
+Combining GLMMs and joint GLMs
+and expanding the distributional assumptions for the random effects
+brings us to the HGLM.
+This model has a response variable whose distribution comes from
+the exponential family.
+The linear predictor has fixed and random effects, and these
+random effects are not constrained to be normally distributed.
+The dispersion parameter can be modeled via a separate link function
+tied to a different linear predictor with fixed effects.
+
+And, finally, we have the *double hierarchical generalized linear model*
+(DHGLM), where we take an HGLM and allow random effects in the dispersion
+model and can also introduce explanatory variables via a link function and
+a linear predictor into the variance of the random effects.
+
+The following diagram is a crude representation of how the
+various models are interconnected (adapted from
+@leeDataAnalysisUsing2020 [p. 3]).
+
+```
+  LM ---> LMM ---> GLMM ---------> HGLM ---> DHGLM
+     \         /               /
+      \       /               /
+       \> GLM ---> Joint GLM /
+```
+
+To help us translate between the mathematical description
+of a model and the **R** code necessary to implement the model,
+consider the following mixed model:
+$$
+  g(\mathbb{E}[y]) = X\beta + Zv,
+$$
+where $y$ is the response variable, $g()$ is the link
+function for the mean, $\beta$ represents the fixed
+effects, and $v$ are the random effects.
+The matrices $X$ and $Z$ are the design matrices for the
+fixed and random effects, respectively.
+We also need to specify the distribution of the response
+variable (a member of the exponential family) and the
+distribution of the random effects, that is, $v \sim F(\lambda)$,
+where $F$ just stands for a distribution such as the Gaussian or
+gamma with parameter vector $\lambda$.
+
+So far we have only described a model for the mean.
+If we are also modeling the dispersion, $\phi$, parameter, then
+we would have
+$$
+  h(\mathbb{E}[\phi]) = W\gamma + Mu,
+$$
+where $h()$ is a link function, $\gamma$ are fixed effects, $u$ are
+random effects, and $W$ and $M$ are design matrices.
+Because the $u$ are random, we also have to specify their distribution,
+which will come with some parameters.
+
+The full specification of a model can be complex, but using the
+notation introduced in Chapter 6 of 
+@leeDataAnalysisUsing2020
+makes things more manageable.
+A DHGLM is 
+represented by a pair
+$$
+  \left\{ \text{model}(\mu), \text{model}(\phi)\right\},
+$$
+where the first entry is the model for the *mean* and the second entry
+represents the model for the *dispersion*.
+
+For example, the usual GLM would be written as
+$\{\text{GLM}(\mu), \phi\}$, where $\phi$ is a constant.
+A joint model would be written as $\{\text{GLM}(\mu), \text{GLM}(\phi)\}$,
+where we have two regular GLM models that are interlinked to form the
+joint model.
+If we want to include a random effect in the model for the mean, we
+can write it as $\{\text{HGLM}(\mu), \phi\}$, and if we also
+want to have the dispersion parameter modeled we would say
+$\{\text{HGLM}(\mu), \text{GLM}(\phi)\}$.
+
+There are two **R** packages to fit these models: `hglm` and `dhglm`.
+We'll use the first one briefly when we revisit the Hachemeister
+data because it allows us to use nearly the same calling code
+as we did in the previous chapter.
+But we will mostly use the `dhglm` package.
+
+The `dhglm` package uses two functions to fit a model.
+The first, `DHGLMMODELING()`, creates the appropriate structures
+for the mean and dispersion models.
+The second, `dhglmfit()`, does the actual computations.
+As an example of their use, a standard log-link Poisson GLM model 
+$\{\text{GLM}(\mu), \phi\}$ for frequency where the dataset is named
+`accidents` and the response 
+variable is `count`, the predictor variables are `age` and `gender`,
+and the amount of exposure to risk is in the variable `exposure`
+would be specified and fitted as follows:
+
+```r
+model.mu <-  DHGLMMODELING(Model = "mean",
+                           Link = "log",
+                           LinPred = count ~ age + gender,
+                           Offset = log(exposure))
+model.phi <- DHGLMMODELING(Model = "dispersion")
+
+fit <- dhglmfit(RespDist = "poisson",
+                DataMain = accidents,
+                MeanModel = model.mu,
+                DispersionModel = model.phi)
+```
+
+
+## Examples
+
+In this section we present four examples to familiarize the reader with
+specifying and fitting models with the `hglm` and `dhglm` packages:
+
+1. Hachemeister
+1. Fabric faults
+1. Train accidents
+1. Diabetes progression
+
+### Quick Revisit with the Hachemeister Data
+
+In the last chapter we fitted several LMMs to the
+Hachemeister data.
+Here we will refit the last model, `hm.mixed.3`, using the machinery
+from HGLMs and compare results.
+The main function to fit HGLMs is `hglm2()` and can be found in the
+`hglm` package.
+
+Model `hm.mixed.3` used a centered version of time called `ctime`,
+that is, a weighted average of time where the weights are the number
+of claims.
+Let's load our data and compute `ctime`.
+
+```{r}
+#| label: load-hachemeister-data-and-compute-ctime
+
+hm.dta <- read_csv("hachemeister-data.csv",
+                   col_types = "fidd")
+CG <- with(hm.dta,
+           tapply(time * claims, state, sum) / 
+             tapply(claims, state, sum))
+hm.dta$ctime <- hm.dta$time - CG[hm.dta$state]
+```
+
+```{r}
+#| include: false
+
+rm(CG)
+```
+
+Using `hglm2()` we specify the model in the same way as before.
+The response variable is `severity`, and we have fixed effects for
+the intercept and the time variable `ctime`.
+We also include uncorrelated random effects for the intercept via `(1 | state)`
+and time `(0 + ctime | state)`.
+Both of the random effects vary by state.
+The response distribution is specified to be normally distributed with
+an identity link function through the `family` parameter.
+The random effects are also normally distributed with an identity
+link function via the `rand.family` parameter.
+
+```{r}
+#| label: fit-HGLM-for-hachemeister-data
+
+hm.hglm.3 <- hglm2(severity ~ ctime + (1 | state) + 
+                     (0 + ctime | state),
+                   data = hm.dta,
+                   family = gaussian(link = "identity"),
+                   rand.family = gaussian(link = "identity"),
+                   weights = claims)
+```
+
+The summary output from the fitting process contains two major sections:
+one for the mean model and the other for the dispersion model.
+Our model did not specify any structure for the dispersion model, and
+so it is taken to be a single parameter.
+
+```{r}
+#| label: HGLM-hachemeister-summary-output
+
+summary(hm.hglm.3)
+```
+
+The fixed-effects estimates are shown first, followed by the 
+random effects for the intercept and then the random effects for 
+the predictor variable `ctime`.
+Putting together the estimated intercepts and slopes (fixed effects plus
+random effects) from the model above, `hm.hglm.3`, we obtain
+
+```{r}
+#| echo: false
+#| label: assemble-HGLM-coefficients
+
+ans <- hm.hglm.3$fixef + matrix(hm.hglm.3$ranef, 
+                                nrow = 2, ncol = 5, byrow = TRUE)
+dimnames(ans) <- list(c("(Intercept)", "ctime"),
+                      1:5)
+round(ans, 3)
+```
+
+The estimates we obtained in the previous chapter based on 
+the GLMM `hm.mixed.3` are
+
+```{r}
+#| echo: false
+#| label: fit-GLMM-hachemeister-data-and-assemble-coefficients
+
+hm.mixed.3 <- lmer(severity ~ ctime + (1 | state) + 
+                     (0 + ctime | state),
+                   data = hm.dta,
+                   weights = claims / 1000)
+round(fixef(hm.mixed.3) + t(as.matrix(ranef(hm.mixed.3)$state)), 3)
+```
+
+Comparing them, they are virtually identical.
+In addition, other estimated quantities such as the variances
+for the random effects are very close to each other.
+The residual variance for model `hm.mixed.3` is equal
+to 49,019.8, and for our hierarchical model `hm.hglm.3`
+it is 49,018.3.
+In model `hm.mixed.3`, the variance for the intercept
+and `ctime` is 70,838.8 and 446.4, respectively, and
+for the hierarchical model`hm.hglm.3`, we have 70,873.4 and 
+446.5---again close to each other.
+
+```{r}
+#| include: false
+#| label: clean-up-hachemeister-example
+
+rm(ans, weights, hm.mixed.3, hm.hglm.3, hm.dta)
+```
+
+
+### Textile Fabric Defects
+
+In this example we consider the dataset `fabric` from 
+@bissellNegativeBinomialModel1972,
+where we will be investigating the number of faults
+in rolls of textile fabric.
+This dataset is available in the `mdhglm` package, and it
+has three variables (we have added the logarithm of `x` as the
+variable `x.lg`) and 32 observations.
+The variable `x` is the length of the roll, and `y` is the
+number of defects.
+The first few rows of the data are
+
+```{r}
+#| echo: true
+#| label: load-fabric-data-compute-log-roll-length
+
+data(fabric, package = "mdhglm")
+fabric$x.lg <- log(fabric$x)
+head(fabric)
+```
+
+This dataset has also been analyzed in
+@leeDataAnalysisUsing2020.
+The response variable is the number of faults, and so
+a natural choice would be to use the Poisson distribution.
+The only predictor variable is the length of the roll
+of fabric.
+@fig-fabric-length-vs-faults
+shows that there is a relationship
+between the response variable and our predictor variable and
+that relationship is not linear.
+As the length of a roll of fabric increases, we see
+an increasing number of defects.
+If we transform both the response and predictor variables
+with a logarithmic function (not shown here), 
+the relationship between them seems linear.
+
+
+```{r}
+#| echo: false
+#| label: fig-fabric-length-vs-faults
+#| fig-cap: "Number of faults in a roll of fabric."
+
+ggplot(data = fabric,
+       mapping = aes(x = x,
+                     y = y)) +
+  geom_point() +
+  labs(x = "Length of Roll (in m)",
+       y = "Number of Faults")
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Transform both the response and predictor variables by applying a logarithmic
+function, and plot them.
+Does the relationship seem linear?
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+While there are several points that do not fall close to a straight line
+pattern, the overall impression is that these points are indeed closer
+to a linear pattern than the original data.
+
+```{r}
+#| echo: true
+#| label: fabric-roll-length-vs-faults-log-scales-html
+
+ggplot(data = fabric,
+       mapping = aes(x = log(x),
+                     y = log(y))) +
+  geom_point() +
+  labs(x = "Length of Roll (log-scale)",
+       y = "Number of Faults (log-scale)")
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Transform both the response and predictor variables by applying a logarithmic
+function, and plot them.
+Does the relationship seem linear?
+
+:::
+
+::: {.pmmsol}
+
+While there are several points that do not fall close to a straight line
+pattern, the overall impression is that these points are indeed closer
+to a linear pattern than the original data.
+
+```{r}
+#| echo: true
+#| label: fabric-roll-length-vs-faults-log-scales-pdf
+
+ggplot(data = fabric,
+       mapping = aes(x = log(x),
+                     y = log(y))) +
+  geom_point() +
+  labs(x = "Length of Roll (log-scale)",
+       y = "Number of Faults (log-scale)")
+```
+
+:::
+
+:::
+
+Therefore, a reasonable starting point would be to use a Poisson 
+GLM with a log-link and the logarithm of the
+length of a roll (`x.lg`) as our predictor variable---that is, 
+we want to fit the following model:
+$$
+  \log\left(\mathbb{E}[y_i] \right) = \beta_0 + \beta_1 \log(x_i),
+$$
+where $y_i$ is the number of faults and $x_i$ is the length of the roll
+of fabric.
+Fitting such a model yields the following summary:
+
+```{r}
+#| echo: false
+#| label: fabric-glm-poisson-model
+
+fab.poi.glm <- glm(y ~ x.lg,
+                   data = fabric,
+                   family = poisson(link = "log"))
+summary(fab.poi.glm)
+```
+
+Even though both the intercept and the coefficient for the logarithm of
+the length of a roll of fabric are statistically significant, the model
+fits very poorly.
+The residual deviance of `r round(deviance(fab.poi.glm), 1)` is extremely
+large compared with residual degrees of freedom of `r df.residual(fab.poi.glm)`,
+and we have a clear indication of overdispersion.
+Perhaps we have misspecified the linear predictor, but given that 
+we have only one variable to work with, there is not much we can 
+do about it.
+Another reason for the lack of fit could be that our choice of link function
+(logarithm) is not correct.
+But we do have some evidence that a log-link function is suitable.
+Hence, we conclude that the Poisson distribution is not adequate for this 
+data, and we move on to considering the negative binomial distribution.
+
+We know that a negative binomial distribution arises as a mixture of
+the Poisson and gamma distributions as follows:
+let $u$ be an unobserved gamma random variable with mean equal to 1 and
+variance equal to $1/\theta$ and, conditionally on $u$, let $Y$ be a
+Poisson random variable with mean equal to $\lambda u$.
+Then the marginal distribution of $Y$ will be negative binomial.
+The standard `glm()` function does not fit negative binomial models,
+but package `MASS` has the function `glm.nb()` to fit these models.
+Fitting a negative binomial GLM to the `fabric` data yields the
+following summary fit information:
+
+```{r}
+#| echo: true
+#| label: fabric-glm-neg-binomial-model
+
+fab.nb.glm <- glm.nb(y ~ x.lg,
+                     data = fabric)
+summary(fab.nb.glm)
+```
+
+Note that the estimated coefficients of this model do not differ
+significantly from those in the Poisson model, and for this
+negative binomial model we do not have any evidence of lack
+of fit.
+The residual deviance is very close to the residual degrees of freedom.
+Of course, other diagnostics are needed to fully check the adequacy of
+this model.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Use the following diagnostic plots to assess the adequacy of the
+negative binomial model:
+
+1. Quantile residuals vs. fitted values
+1. Absolute value of quantile residuals vs. fitted values
+1. Quantile residuals vs. predictor variable
+1. Linear predictor vs. working responses
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+Let us compute the quantities we need for the diagnostic plots:
+
+```{r}
+#| echo: true
+#| label: compute-diagnostic-measures-for-neg-binomial-model-html
+
+fabric.res <- fabric |>
+  mutate(eta = predict(fab.nb.glm, type = "link"),
+         mu  = predict(fab.nb.glm, type = "response"),
+         rQ  = qresid(fab.nb.glm),
+         rW  = resid(fab.nb.glm, type = "working"),
+         wR  = rW + eta)
+```
+
+Compute the individual plots.
+
+```{r}
+#| echo: true
+#| label: compute-diagnostic-plots-neg-binomial-model-html
+
+p1 <- ggplot(data = fabric.res,
+             mapping = aes(x = mu,
+                           y = rQ)) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "Quantile Residuals")
+p2 <- ggplot(data = fabric.res,
+             mapping = aes(x = mu,
+                           y = abs(rQ))) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "abs(Quantile Residuals)")
+p3 <- ggplot(data = fabric.res,
+             mapping = aes(x = x.lg,
+                           y = rQ)) +
+  geom_point() +
+  labs(x = "Length of Fabric Roll (log-scale)",
+       y = "Quantile Residuals")
+p4 <- ggplot(data = fabric.res,
+             mapping = aes(x = wR,
+                           y = eta)) +
+  geom_point() + 
+  labs(x = "Working Response",
+       y = "Linear Predictor")
+```
+
+And arrange them in a $2 \times 2$ grid.
+
+```{r}
+#| echo: true
+#| label: arrange-neg-binomial-diagnostic-plots-html
+#| fig-width: 4.5
+#| fig-height: 5.5
+
+(p1 + p2) / (p3 + p4)
+```
+
+Both left-hand panels should display a random cloud of points.
+Existence of any patterns in these plots would be and indication
+that our model is not adequate.
+For the upper right-panel, we would like to see a constant, even spread
+of points across the $y$-axis.  Any systematic increase or decrease
+would be an indication that our variance function is not correct.
+For the last panel in the bottom-right corner, the ideal pattern
+would be to have all points line up along the line $y = x$.
+Departures from that pattern would be an informal indication that the
+link function is not correct (or that we have misspecified the linear
+predictor).
+
+```{r}
+#| include: false
+
+rm(fabric.res, p1, p2, p3, p4)
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Use the following diagnostic plots to assess the adequacy of the
+negative binomial model:
+
+1. Quantile residuals vs. fitted values
+1. Absolute value of quantile residuals vs. fitted values
+1. Quantile residuals vs. predictor variable
+1. Linear predictor vs. working responses
+
+
+:::
+
+::: {.pmmsol}
+
+Let us compute the quantities we need for the diagnostic plots:
+
+```{r}
+#| echo: true
+#| label: compute-diagnostic-measures-for-neg-binomial-model-pdf
+
+fabric.res <- fabric |>
+  mutate(eta = predict(fab.nb.glm, type = "link"),
+         mu  = predict(fab.nb.glm, type = "response"),
+         rQ  = qresid(fab.nb.glm),
+         rW  = resid(fab.nb.glm, type = "working"),
+         wR  = rW + eta)
+```
+
+Compute the individual plots.
+
+```{r}
+#| echo: true
+#| label: compute-diagnostic-plots-neg-binomial-model-pdf
+
+p1 <- ggplot(data = fabric.res,
+             mapping = aes(x = mu,
+                           y = rQ)) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "Quantile Residuals")
+p2 <- ggplot(data = fabric.res,
+             mapping = aes(x = mu,
+                           y = abs(rQ))) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "abs(Quantile Residuals)")
+p3 <- ggplot(data = fabric.res,
+             mapping = aes(x = x.lg,
+                           y = rQ)) +
+  geom_point() +
+  labs(x = "Length of Fabric Roll (log-scale)",
+       y = "Quantile Residuals")
+p4 <- ggplot(data = fabric.res,
+             mapping = aes(x = wR,
+                           y = eta)) +
+  geom_point() + 
+  labs(x = "Working Response",
+       y = "Linear Predictor")
+```
+
+And arrange them in a $2 \times 2$ grid.
+
+```{r}
+#| echo: true
+#| label: arrange-neg-binomial-diagnostic-plots-pdf
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+(p1 + p2) / (p3 + p4)
+```
+
+Both left-hand panels should display a random cloud of points.
+Existence of any patterns in these plots would be and indication
+that our model is not adequate.
+For the upper right-panel, we would like to see a constant, even spread
+of points across the $y$-axis.  Any systematic increase or decrease
+would be an indication that our variance function is not correct.
+For the last panel in the bottom-right corner, the ideal pattern
+would be to have all points line up along the line $y = x$.
+Departures from that pattern would be an informal indication that the
+link function is not correct (or that we have misspecified the linear
+predictor).
+
+```{r}
+#| include: false
+
+rm(fabric.res, p1, p2, p3, p4)
+```
+
+:::
+
+:::
+
+
+Since the estimated value of $\theta$ in the negative binomial
+model is `r round(fab.nb.glm$theta, 2)`, we know that the variance
+of the gamma distribution is $1/`r round(fab.nb.glm[["theta"]], 2)`$.
+@fig-density-for-neg-binomial-random-effect
+displays what the estimated density function for the random effect
+looks like.
+
+```{r}
+#| echo: false
+#| label: fig-density-for-neg-binomial-random-effect
+#| fig-cap: "The density function for the random effect $u$."
+
+ggplot(data = tibble(x = seq(0.1, 2.2, length = 500),
+                     y = dgamma(x, shape = 8.67, scale = 1/8.67)),
+       mapping = aes(x = x,
+                     y = y)) +
+  geom_line() +
+  labs(x = "Unobserved Random Variable",
+       y = "Density")
+```
+
+
+We can also view the above model as LMM.
+The mean of the Poisson distribution is $\lambda u$,
+and we would like to introduce explanatory variables.
+Hence, using a logarithmic link function we set
+$$
+  \log(\lambda  u) = \log(\lambda) + \log(u) = X\beta + v,
+$$
+where $X\beta$ incorporates all of our fixed-effects explanatory variables and 
+$v = log(u)$ is the unobserved random effect.
+
+For the fabric data we can fit such a model by specifying the
+structure of
+
+1. the mean model, and
+1. the dispersion model.
+
+For now we will keep the dispersion model as a single 
+constant (just like we always do when we fit a GLM).
+
+The mean model is
+
+```{r}
+#| echo: true
+#| label: fabric-dhglm-mean-model
+
+model.mu <- DHGLMMODELING(Model = "mean",
+                          Link = "log",
+                          LinPred = y ~ x.lg + (1 | rf),
+                          RandDist = "gamma")
+```
+
+Note that we have chosen a gamma distribution for the random effect.
+
+The dispersion model is just a constant, so we do not specify
+any components:
+
+```{r}
+#| echo: true
+#| label: fabric-dhglm-dispersion-model
+
+model.phi <- DHGLMMODELING(Model = "dispersion")
+```
+
+We fit this model via
+
+```{r}
+#| echo: true
+#| label: fabric-dhglm-model-fitting
+
+fab.hglm.nb <- dhglmfit(RespDist = "poisson",
+                        DataMain = fabric,
+                        MeanModel = model.mu,
+                        DispersionModel = model.phi)
+```
+
+```{r}
+#| include: false
+
+rm(model.mu, model.phi)
+```
+
+Here the estimated fixed effects are close to those reported for the
+negative binomial model.
+The variance of the random effect,
+`r round(fab.hglm.nb[["lambda_coeff"]][1], 3)`,
+is reported on a logarithmic scale, and exponentiating its value
+we obtain 
+`r exp(round(fab.hglm.nb[["lambda_coeff"]][1], 3))`,
+which is of similar magnitude compared with the variance
+of the negative binomial model $(1/8.6674 = 0.1154)$.
+
+@fig-fabric-diagnostic-plots-hglm-model
+reveals that whereas our model
+may be adequate, there are some areas of concern.
+The display shows the studentized deviance residuals.
+The top-left panel shows that for fitted values greater than
+about 12.5, we have a group of observations with positive and
+increasing residuals only.
+And below 7.5 there seems to be a larger number of observations
+with negative residuals than positive ones.
+The top-right panel shows the absolute value of studentized
+residuals versus fitted values.
+Ideally, there would be no underlying trend in the residuals,
+but the graph shows that as fitted values increase, residuals
+first decrease and then increase.
+The QQ plot, in the bottom-left panel, shows the expected
+pattern, and the bottom-right panel also shows a
+reasonable histogram for the residuals.
+
+```{r}
+#| include: false
+#| label: compute-diagnostic-plots-for-hglm-model
+
+df <- tibble(mu = as.numeric(fab.hglm.nb[["mu"]]),
+             srD = as.numeric(fab.hglm.nb[["mean_residual"]]))
+p1 <- ggplot(data = df,
+             mapping = aes(x = mu,
+                           y = srD)) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "Stu. Dev. Residuals")
+p2 <- ggplot(data = df,
+             mapping = aes(x = mu,
+                           y = abs(srD))) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "|Stu. Dev. Residuals|")
+p3 <- ggplot(data = df,
+             mapping = aes(sample = srD)) +
+  geom_qq() +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+p4 <- ggplot(data = df,
+             mapping = aes(srD)) +
+  geom_histogram(bins = 5) +
+  labs(x = "Stu. Dev. Residuals",
+       y = "Frequency")
+```
+
+```{r}
+#| echo: false
+#| label: fig-fabric-diagnostic-plots-hglm-model
+#| fig-cap: "Diagnostic plots from a Poisson-gamma HGLM fitted to the fabric data. The top panels show that the model has some deficiencies beacuase there are discernible patterns.  The bottom panels show the expected patterns."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+(p1 + p2) / (p3 + p4)
+```
+
+
+```{r}
+#| include: false
+#| label: clean-up-fabric-example
+
+rm(list = ls(pattern = "p[1-4]"))
+rm(fabric, fab.poi.glm, fab.nb.glm, fab.hglm.nb, df)
+```
+
+
+### Train Accident
+
+In this example we analyze a dataset from
+@agrestiCategoricalDataAnalysis2002
+regarding the number of collisions involving
+British Rail passenger trains and road vehicles between 1975 and 2003.
+The available variables are the number of annual collisions
+(`y`) between trains and road vehicles, the distance traveled 
+per year (`t`) in millions of kilometers, the number of years (`x`) since
+1975, and an identification (`id`) label for each row of data.
+The data is available in the package `mdhglm` under the name `train`, and 
+the first few rows are 
+
+```{r}
+#| echo: true
+#| label: load-train-dataset
+
+data(train, package = "mdhglm")
+head(train)
+```
+
+@leeDataAnalysisUsing2020
+also analyzed the data, and we follow their discussion closely.
+
+We are interested in understanding the rate of accidents per
+million kilometers traveled.
+A scatterplot (not displayed here) shows a nonlinear decreasing trend
+for the rate of collisions as time increases,
+but a logarithmic transformation of the response variable shows
+(see @fig-train-log-rate-vs-time) 
+a decreasing linear trend with substantial variability around it.
+
+
+A Poisson GLM might be our first choice for modeling the rate, but again
+such a model does not fit the data adequately.
+Overdispersion is clearly present.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Fit a Poisson model to the rate of collisions and show that the fit
+is not adequate by plotting the absolute value of the quantile residuals
+against fitted values.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+To fit a Poisson model with a logarithmic link function to the rate
+of collisions, we would specify the following model:
+$$
+  \log\left(\mathbb{E}\left[\frac{y}{t} \right] \right) = 
+  \beta_0 + \beta_1 x.
+$$
+This model can be rewritten as 
+$$
+  \log(\mathbb{E}[y]) = \beta_0 + \beta_1 x + \log(t),
+$$
+where the last term, $\log(t)$, is an offset term for the amount of exposure.
+The code to fit the above model is
+
+```{r}
+#| echo: true
+#| label: train-poi-model-html
+
+train.poi <- glm(y ~ x + offset(log(t)),
+                 data = train,
+                 family = poisson(link = "log"))
+summary(train.poi)
+```
+
+Overdispersion is likely since the residual deviance is larger than the 
+degrees of freedom (the mean deviance estimator of the dispersion parameter
+is equal to $37.853 / 27 = 1.402$).
+The plot of absolute value quantile residuals shows a clear increasing trend
+as fitted values increase.
+This tells us that the variance function we have selected (in this case it is
+linear because we are using the Poisson distribution) is not increasing fast
+enough, and so our assumption that the number of collisions is Poisson
+distributed is not correct.
+
+```{r}
+#| echo: true
+#| label: train-poi-model-diagnostic-html
+
+ggplot(data = tibble(mu = predict(train.poi, type = "response"),
+                     rD = resid(train.poi, type = "deviance")),
+       mapping = aes(x = (mu),
+                     y = abs(rD))) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "abs(Deviance Residuals)")
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Fit a Poisson model to the rate of collisions and show that the fit
+is not adequate by plotting the absolute value of the quantile residuals
+against fitted values.
+
+:::
+
+::: {.pmmsol}
+
+To fit a Poisson model with a logarithmic link function to the rate
+of collisions, we would specify the following model:
+$$
+  \log\left(\mathbb{E}\left[\frac{y}{t} \right] \right) = 
+  \beta_0 + \beta_1 x.
+$$
+This model can be rewritten as 
+$$
+  \log(\mathbb{E}[y]) = \beta_0 + \beta_1 x + \log(t),
+$$
+where the last term, $\log(t)$, is an offset term for the amount of exposure.
+The code to fit the above model is
+
+```{r}
+#| echo: true
+#| label: train-poi-model-pdf
+
+train.poi <- glm(y ~ x + offset(log(t)),
+                 data = train,
+                 family = poisson(link = "log"))
+summary(train.poi)
+```
+
+Overdispersion is likely since the residual deviance is larger than the 
+degrees of freedom (the mean deviance estimator of the dispersion parameter
+is equal to $37.853 / 27 = 1.402$).
+The plot of absolute value quantile residuals shows a clear increasing trend
+as fitted values increase.
+This tells us that the variance function we have selected (in this case it is
+linear because we are using the Poisson distribution) is not increasing fast
+enough, and so our assumption that the number of collisions is Poisson
+distributed is not correct.
+
+```{r}
+#| echo: true
+#| label: train-poi-model-diagnostic-pdf
+
+ggplot(data = tibble(mu = predict(train.poi, type = "response"),
+                     rD = resid(train.poi, type = "deviance")),
+       mapping = aes(x = (mu),
+                     y = abs(rD))) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "abs(Deviance Residuals)")
+```
+
+:::
+
+:::
+
+
+```{r}
+#| echo: false
+#| label: fig-train-log-rate-vs-time
+#| fig-cap: "The rate of collisions, per million kilometers traveled (log-scale), between British passenger trains and road vehicles from 1975 to 2003."
+
+ggplot(data = train,
+       mapping = aes(x = x + 1975,
+                     y = log(y/t))) +
+  geom_point() + 
+  labs(x = "Calendar Year",
+       y = "Rate of Collision (per M km, log-scale)")
+```
+
+
+
+Fitting a Poisson-gamma HGLM should be our next 
+choice.
+We will model the dispersion parameter as a constant.
+The mean will include a random effect with a gamma
+distribution, and because our response variable is a
+rate and we are using a log-link function, we will
+include an offset in our model.
+
+```{r}
+#| echo: true
+#| label: train-hglm-model-specification-and-fitting
+
+model.mu <- DHGLMMODELING(Model = "mean",
+                      Link = "log",
+                      LinPred = y ~ x + (1 | id),
+                      Offset = log(train$t),
+                      RandDist = "gamma")
+model.phi <- DHGLMMODELING(Model = "dispersion")
+
+train.hglm <- dhglmfit(RespDist = "poisson",
+                       DataMain = train,
+                       MeanModel = model.mu,
+                       DispersionModel = model.phi)
+```
+
+```{r}
+#| include: false
+
+rm(model.mu, model.phi)
+```
+
+The fixed effects are both significant at the 5% level.
+The coefficient for year is negative and shows that as
+each year goes by we can expect the number of collisions
+to decrease by about 3.5%.
+The variance of the random effect (on a log-scale) is
+$`r round(train.hglm[["lambda_coeff"]][1], 3)`$ with a 
+standard error equal to 
+`r round(train.hglm[["lambda_coeff"]][2], 3)`, and so
+the variance is statistically different from zero.
+The density for our random effect is shown in
+@fig-train-random-effects-estimated-density.
+
+```{r}
+#| echo: false
+#| label: compute-var-parameter-and-grab-estimate-random-effects
+
+theta <- exp(train.hglm[["lambda_coeff"]][1])
+df <- tibble(x = train.hglm[["v_h"]][,1],
+             y = 0)
+```
+
+```{r}
+#| echo: false
+#| label: fig-train-random-effects-estimated-density
+#| fig-cap: "Estimated density function for train dataset along with the estimated random effects (points on the $x$-axis)."
+
+ggplot(data = tibble(x = seq(0.01, 2.5, length = 200),
+                     y = dgamma(x, scale = theta, shape = 1/theta)),
+       mapping = aes(x = x,
+                     y = y)) +
+  geom_line() +
+  geom_point(data = df,
+             mapping = aes(x = exp(x),
+                           y = y)) +
+  labs(x = "Unobservable Random Effect",
+       y = "Density")
+```
+
+```{r}
+#| include: false
+
+rm(theta, df)
+```
+
+@fig-train-QQ-plots-poisson-hglm
+displays QQ plots for the Poisson and the Poisson--gamma HGLM models.
+Note that the Poisson model shows that the distribution of the studentized
+deviance residuals has a fatter tail than the normal distribution.
+The two points in the upper-right corner are too large,
+whereas for the Poisson-gamma HGLM model those two points are much
+closer to the theoretical line.
+
+```{r}
+#| include: false
+#| label: compute-studentized-deviance-residuals-for-train-models
+
+df <- tibble(model = factor(rep(c("Poisson Model", "HGLM Model"), each = 29),
+                            levels = c("Poisson Model", "HGLM Model")),
+             value = NA)
+df$value[1:29] <- rstudent(train.poi)
+df$value[30:58] <- train.hglm[["mean_residual"]][,1]
+```
+
+```{r}
+#| echo: false
+#| label: fig-train-QQ-plots-poisson-hglm
+#| fig-cap: "Quantile-quantile plot for the studentized deviance residuals from the Poisson and the Poisson-gamma (HGLM) models."
+
+ggplot(data = df,
+       mapping = aes(sample = value)) +
+  facet_wrap(vars(model)) +
+  geom_qq(aes()) + geom_qq_line() +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+```
+
+```{r}
+#| include: false
+#| label: clean-up-train-example
+
+rm(df)
+rm(train, train.hglm, train.poi)
+```
+
+
+### Diabetes Progression
+
+```{r}
+#| include: false
+#| label: load-diabetes-data
+
+data(diabetes, package = "lars")
+diab <- tibble(age = as.numeric(diabetes[,1][, 1]),
+               sex = as.numeric(diabetes[,1][, 2]),
+               bmi = as.numeric(diabetes[,1][, 3]),
+               abp = as.numeric(diabetes[,1][, 4]),
+               tc  = as.numeric(diabetes[,1][, 5]),
+               ldl = as.numeric(diabetes[,1][, 6]),
+               hdl = as.numeric(diabetes[,1][, 7]),
+               tch = as.numeric(diabetes[,1][, 8]),
+               ltg = as.numeric(diabetes[,1][, 9]),
+               glu = as.numeric(diabetes[,1][,10]),
+               y   = as.numeric(diabetes[,2]))
+rm(diabetes)
+```
+
+For this example, we use a dataset on diabetes patients to illustrate
+the fitting of a joint GLM.
+The data, on `r nrow(diab)` diabetic patients, was analyzed in
+@efronLeastAngleRegression2004 and 
+ @antoniadisJointEstimationVariable2016.
+Ten baseline variables for the patients were recorded, and a year
+later a measure of disease progression was also collected.
+A model was sought to predict disease progression based on the
+baseline variables of age, sex, body mass index, average
+blood pressure, and six blood serum measurements.
+@tbl-first-six-rows-from-table-1-in-efronLeastAngleRegression2004
+displays the first six rows of the data as shown in Table 1 from
+@efronLeastAngleRegression2004.
+The data is available in the **R** package `lars` under the name `diabetes`.
+Note that the explanatory variables in the dataset `diabetes` have been 
+scaled to have mean zero and unit variance, but
+@tbl-first-six-rows-from-table-1-in-efronLeastAngleRegression2004
+shows the unscaled values for the first six rows.
+
+```{r}
+#| include: false
+#| label: first-6-rows-of-table-1-from-efronLeastAngleRegression2004
+
+tb <- tibble(patient = 1:6,
+             age = c(59, 48, 72, 24, 50, 23),
+             sex = c(2, 1, 2, 1, 1, 1),
+             bmi = c(32.1, 21.6, 30.5, 25.3, 23.0, 22.6),
+             abp = c(101, 87, 93, 84, 101, 89),
+             tc  = c(157, 183, 156, 198, 192, 139),
+             ldl = c(93.2, 103.2, 93.6, 131.4, 125.4, 64.8),
+             hdl = c(38, 70, 41, 40, 52, 61),
+             tch = c(4, 3, 4, 5, 4, 2),
+             ltg = c(4.9, 3.9, 4.7, 4.9, 4.3, 4.2),
+             glu = c(87, 69, 85, 89, 80, 68),
+             y   = c(151, 75, 141, 206, 135, 97))
+```
+
+```{r}
+#| echo: false
+#| label: tbl-first-six-rows-from-table-1-in-efronLeastAngleRegression2004
+#| tbl-cap: "First six rows of the unscaled diabetes data."
+
+tb |>
+  kbl(booktabs = TRUE,
+      align = "crrrrrrrrrrr",
+      col.names = c("Patient", "age", "sex", "bmi", "abp", "tc",
+                    "ldl", "hdl", "tch", "ltg", "glu", "y"),
+      linesep = c("", "", "\\addlinespace")) |>
+  add_header_above(c(" " = 1, " " = 1, " " = 1, " " = 1, " " = 1,
+                     "Serum Measurements" =  6, "Response" = 1),
+                   align = c("c", "r", "r", "r", "r", "c", "r")) |>
+  kable_styling(latex_options = "scale_down") |>
+  add_footnote(label = "Source: Table 1 in Efron et al. (2004).",
+               notation = "none") |>
+  kable_classic()
+rm(tb)
+```
+
+
+
+
+
+
+```{r}
+#| echo: false
+#| label: compute-diabetes-exploratory-graphs
+
+p1 <- ggplot(data = diab,
+             mapping = aes(x = age,
+                           y = y)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Scaled Values of Age",
+       y = "Disease Progression")
+
+p2 <- ggplot(data = diab,
+             mapping = aes(x = bmi,
+                           y = y)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Scaled Values of BMI",
+       y = "Disease Progression")
+
+p3 <- ggplot(data = diab,
+             mapping = aes(x = hdl,
+                           y = y)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Scaled Values of HDL",
+       y = "Disease Progression")
+
+p4 <- ggplot(data = diab,
+             mapping = aes(x = glu,
+                           y = y)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Scaled Values of Glucose",
+       y = "Disease Progression")
+```
+
+```{r}
+#| echo: false
+#| label: fig-diabetes-exploratory-graphs
+#| message: false
+#| fig-cap: "Exploratory graphs of disease progression versus explanatory variables age, body mass index (BMI), high density lipoprotein cholesterol (HDL), and glucose. Scatterplot smooth lines have been added to aid in detecting the overall pattern. Note that in several of the panels, the variance in disease progression is not constant across the values of the explanatory variables."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+(p1 + p2) / (p3 + p4)
+rm(p1, p2, p3, p4)
+```
+
+@fig-diabetes-exploratory-graphs
+displays four exploratory graphs of the response variable, disease progression,
+versus some explanatory variables.
+Body mass index (BMI) and glucose level show a strong relationship to the response,
+whereas age and high density lipoprotein cholesterol (HDL) show a weaker relationship.
+We can also see that the variability in the response is not constant across 
+the range of values in the explanatory variables.
+
+Some of the blood serum measurements (six variables) may be correlated 
+to each other.
+@fig-diabetes-serum-variables-pairs-plot
+displays a scatterplot matrix of these measurements where we can see
+that `tc` is highly positively linearly correlated with `ldl` 
+(positions $(2,1)$ and $(1,2)$ in the plot matrix).
+And variable `tch` is highly negatively linearly correlated with `hdl`
+(positions $(4,3)$ and $(3,4)$ in the plot matrix).
+Variable `ldl` is also linearly correlated with `tch`, as is `ltg` with
+`tch`.
+
+```{r}
+#| echo: false
+#| label: fig-diabetes-serum-variables-pairs-plot
+#| fig-cap: "Scatterplot matrix for the blood serum variables. The diagonal entries show nonparametric estimates of the density function for each variable. The upper triangular entries are the pairwise linear correlation coefficients, and the bottom triangular entries are the pairwise scatterplots for the variables."
+
+ggpairs(diab[,5:10],
+        lower = list(continuous = wrap("points", alpha = 0.2),
+                     combo = "facethist", 
+                     discrete = "facetbar", na = "na"),
+        axisLabels = "none",
+        progress = FALSE)
+```
+
+Based on the observations from
+@fig-diabetes-exploratory-graphs and @fig-diabetes-serum-variables-pairs-plot,
+we suspect that some of the variables will not be significant in predicting
+the mean response and some will help
+us model the variance of the response.
+Hence, we would like to fit a joint GLM model---that is, we want to have
+a GLM for the response and also a GLM for the dispersion parameter.
+We specify such a structure as follows:
+
+```{r}
+#| label: diabetes-joint-full-model-structure
+
+model.mu <-  DHGLMMODELING(Model = "mean",
+                           Link = "identity",
+                           LinPred = y ~ age + sex + bmi + abp + tc + 
+                             ldl + hdl + tch + ltg + glu)
+
+model.phi <- DHGLMMODELING(Model = "dispersion",
+                           Link = "log",
+                           LinPred = y ~ age + sex + bmi + abp + tc + 
+                             ldl + hdl + tch + ltg + glu)
+```
+
+Assuming that the response variable, disease progression, is adequately
+represented as a normal distribution we can fit the joint model via
+
+```{r}
+#| echo: true
+#| label: fit-diabetes-joint-full-model
+
+diab.model <- dhglmfit(RespDist = "gaussian",
+                       DataMain = diab,
+                       MeanModel = model.mu,
+                       DispersionModel = model.phi)
+```
+
+```{r}
+#| include: false
+#| label: clean-up-model-specs
+
+rm(model.mu, model.phi)
+```
+
+The top section of the output gives the estimated coefficients for the
+model of the response variable, and we can see that variables `sex`, 
+`bmi`, `abp`, and `ltg` are  significant at the 5% level.
+The bottom section shows the estimated coefficients for the dispersion
+model.
+Here the coefficients for `sex` and average blood pressure `abp`
+are significant.
+
+Reestimating the model with only the significant variables gives us the
+following estimated coefficients:
+
+```{r}
+#| echo: false
+#| label: fit-diabetes-final-joint-model
+
+model.mu <- DHGLMMODELING(Model = "mean",
+                          Link = "identity",
+                          LinPred = y ~ sex + bmi + abp + ltg)
+model.phi <- DHGLMMODELING(Model = "dispersion",
+                           Link = "log",
+                           LinPred = y ~ sex + abp)
+diab.final <- dhglmfit(RespDist = "gaussian",
+                       DataMain = diab,
+                       MeanModel = model.mu,
+                       DispersionModel = model.phi)
+```
+
+```{r}
+#| include: false
+#| label: clean-up-final-model-specs
+
+rm(model.mu, model.phi)
+```
+
+@fig-diabetes-final-model-fitted-vs-residuals-mean-and-dispersion-model
+shows the studentized deviance residuals against the fitted values for
+both the mean and dispersion models.
+For the mean model, the overall shape of the points looks random with a
+slight increase on the lower end of the fitted values.
+For the dispersion model, we have slight curvature of the residuals, but
+it is minimal.
+
+```{r}
+#| include: false
+#| label: compute-diabetes-small-model-fitted-values-and-residuals
+
+diab.sm <- diab |>
+  mutate(mean.mu = diab.final[7][[1]],
+         mean.sr = diab.final[1][[1]],
+         phi.mu =  diab.final[4][[1]],
+         phi.sr =  diab.final[3][[1]])
+```
+
+```{r}
+#| echo: false
+#| label: fig-diabetes-final-model-fitted-vs-residuals-mean-and-dispersion-model
+#| message: false
+#| fig-cap: "Fitted values versus residuals for the mean and dispersion models of the diabetes data."
+
+p1 <- ggplot(data = diab.sm,
+       mapping = aes(x = mean.mu,
+                     y = mean.sr)) +
+  geom_point() + geom_smooth(se = TRUE) +
+  labs(x = "Scaled Fitted Values",
+       y = "Studentized Residuals",
+       title = "Mean Model")
+p2 <- ggplot(data = diab.sm,
+       mapping = aes(x = phi.mu,
+                     y = phi.sr)) +
+  geom_point() + geom_smooth(se = TRUE) +
+  labs(x = "Scaled Fitted Values",
+       y = "Studentized Residuals",
+       title = "Dispersion Model")
+p1 + p2
+```
+
+
+```{r}
+#| include: false
+#| label: clean-up-environment
+
+rm(list = ls(pattern = "diab"))
+rm(p1, p2)
+```
+
+
+## Summary {#sec-glmm-summary}
+
+In this chapter, we introduced a class of hierarchical generalized
+linear mixed models [@leeGeneralizedLinearModels2021] that extend the
+GLM by allowing random effects with normal and
+non-normal distributions and modeling the dispersion parameter via
+explanatory variables with both fixed and random effects.
+
+We can think of these models as a pair of
+$\{\text{mean}, \text{dispersion} \}$-models.
+The standard GLM would be specified as
+$\{\text{GLM}(\mu), \text{constant}\}$, meaning that we have a GLM
+for the mean of the response variable and a constant dispersion model.
+
+:::{=latex}
+
+\clearpage
+
+:::
+
+Other models in the crude diagram
+
+```
+  LM ---> LMM ---> GLMM ---------> HGLM ---> DHGLM
+     \         /               /
+      \       /               /
+       \> GLM ---> Joint GLM /
+```
+
+can be specified as follows:
+
+1. **Linear mixed model (LMM)**. The mean model would be a hierarchical GLM
+with normally distributed random effects and a Gaussian distribution for 
+the response, together with the identity link function.
+1. **Joint GLM (JGLM)**. Both the mean model and the dispersion model are 
+GLMs, and the models are interlinked.
+1. **Generalized linear mixed model (GLMM)**. The dispersion model is constant.
+The model for the mean response is a GLM with normally
+distributed random effects.
+1. **Hierarchical generalized linear model (HGLM)**. Both the mean and dispersion
+are modeled.  The mean model is a model with random effects that are not restricted to being normally distributed.
+The dispersion parameter is modeled via a GLM with fixed effects only.
+1. **Double hierarchical generalized linear model (DHGLM)**. This extends the HGLM
+model by allowing random effects in the model for the dispersion parameter
+and allowing the modeling of the variance of the random effects via
+explanatory variables.
+
+We revisited the Hachemeister dataset to show how the same model (essentially)
+can be fitted to the data based on the new class of HGLMs.
+We also presented two new examples with gamma random effects: 
+fabric fault data and train collisions with road vehicles.
+For both of those examples, the response variable was a count for which
+we used a Poisson distribution.
+But the Poisson model was not adequate for the data because of overdispersion.
+Hence, we introduced a gamma random effect yielding the negative binomial
+distribution.
+
+In the final example, we analyzed a dataset quantifying the disease 
+progression of diabetic patients.
+Here, after noticing that the variance of the response variable was not constant,
+we decided to introduce explanatory variables to model it.
+Therefore, we fitted a joint GLM to the data where we specified a linear
+predictor for the mean disease progression and also introduced another
+linear predictor for the dispersion model.
+
+In the next chapter, we present several examples that make use
+of random effects for categorical variables that have a large number
+of levels.
+This will bring us back to incorporating credibility into our modeling.
+

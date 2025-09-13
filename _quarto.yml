@@ -1,0 +1,146 @@
+project:
+  type: book
+
+book:
+  title: "Practical Mixed Models for Actuaries"
+  author: "Ernesto Schirmacher, PhD, FSA, CSPA"
+  date: ""
+  cover-image: cas-logo.png
+  chapters:
+    - index.qmd
+    - intro.qmd
+    - glm-review.qmd
+    - credibility.qmd
+    - lmm-models.qmd
+    - glmm-models.qmd
+    - applications.qmd
+    - references.qmd
+  appendices: 
+    - appendix-a.qmd
+    - appendix-b.qmd
+    - appendix-c.qmd
+    - appendix-e.qmd
+
+bibliography: PracticalMixedModels.bib
+csl: canadian-biosystems-engineering-customized.csl
+nocite: |
+  @dunnGLMsDataGeneralizedLinear2022, 
+  @wolny-dominiakInsuranceDataCollectionInsurance2014, 
+  @hastieLarsLeastAngle2022, 
+  @leeMdhglmMultivariateDouble2018,
+  @nelderGeneralizedLinearModels1972a
+
+format:
+  pdf:
+    documentclass: scrreprt
+    geometry:
+      - top=30mm
+      - left=50mm
+      - right=25mm
+      - heightrounded
+      - asymmetric
+    classoption: [twoside,numbers=endperiod]
+    template-partials: 
+      - before-title.tex
+    include-in-header:
+      - text: |
+          \usepackage{amsthm}
+          \makeatletter
+          \renewcommand{\chapterlinesformat}[3]{%
+          \hspace*{-1in}%
+          \@hangfrom{#2}{#3}}
+          \renewcommand{\chapterlineswithprefixformat}[3]{%
+          \hspace*{-1in}%
+          #2#3}
+          \makeatother
+          \newcolumntype{R}{>{$}r<{$}}
+          \definecolor{CASBlue}{rgb}{0.00,0.00,0.80}
+          \addtokomafont{publishers}{\small}
+          \addtokomafont{chapter}{\color{CASBlue}}
+          \addtokomafont{section}{\color{CASBlue}}
+          \addtokomafont{pagenumber}{\color{CASBlue}}
+          \addtokomafont{captionlabel}{\color{CASBlue}}
+          \addtokomafont{caption}{\sffamily\color{CASBlue}}
+          \setkomafont{subsection}{\normalfont\sffamily\Large\color{CASBlue}}
+          \renewcommand*{\captionformat}{\ }
+          \usepackage{scrlayer-scrpage}
+          \lohead{}
+          \cohead{}
+          \rohead{{\small Practical Mixed Models for Actuaries\hspace{10mm}}}
+          \lehead{{\small\hspace{-15mm}Practical Mixed Models for Actuaries}}
+          \cehead{}
+          \rehead{}
+          \lofoot{}
+          \cofoot{}
+          \rofoot{{\small Casualty Actuarial Society}\hspace{10mm}{\large\pagemark}}
+          \lefoot{\hspace{-25mm}{\large \pagemark}\hspace{10mm}{\small Casualty Actuarial Society}}
+          \cefoot{}
+          \refoot{}
+          \pagestyle{scrheadings}
+          \setkomafont{pagehead}{\normalfont\sffamily\color{CASBlue}}
+          \setkomafont{pagefoot}{\normalfont\sffamily\color{CASBlue}}
+          \newcommand{\HTRule}{\noindent\textcolor{CASBlue}{\rule{5pt}{5pt}\rule[3.5pt]{\linewidth-5pt}{1.5pt}}}
+          \newcommand{\HBRule}{\noindent\textcolor{CASBlue}{\rule{\linewidth-5pt}{1.5pt}\rule{5pt}{5pt}}}
+          \newcounter{pmmexectr}[chapter]
+          \makeatletter
+          \newenvironment{pmmexe}{\stepcounter{pmmexectr}\small\HTRule%
+          \par\nopagebreak\vspace{-2.5mm}\textcolor{CASBlue}{\sffamily\textbf{Exercise \thechapter.\thepmmexectr\ }}\@ifnextchar\par\@gobble\relax}{\par}
+          \newenvironment{pmmsol}{\small\textcolor{CASBlue}{\sffamily\textbf{Solution \thechapter.\thepmmexectr\ }}\@ifnextchar\par\@gobble\relax}{\par\vspace{-5mm}\HBRule}
+          \makeatother
+          \newcommand{\rb}[1]{\raisebox{-0.8ex}{#1}}
+          \setkomafont{captionlabel}{\sffamily\bfseries}
+          \setcapindent{0pt}
+          \frontispiece{}
+          \extratitle{\noindent
+          This monograph provides a practical introduction to an area of 
+          actuarial practice that is at the intersection of the theories 
+          of credibility and mixed models.
+          Several credibility models are shown to be special 
+          cases of the linear mixed model, and thus we may apply all the
+          statistical machinery to assess, refine, and expand them. 
+          The text then introduces generalized linear mixed models,
+          removing some of the constraints of the linear mixed model, and
+          thus allowing for applications in the insurance industry.
+          The focus is on the practical application of the theory rather 
+          than its development.
+          Therefore, text and computer code are integrated as we discuss examples
+          from property/casualty and health.}
+          \publishers{\includegraphics[height=20mm]{cas-logo}\\
+          Casualty Actuarial Society\\
+          4350 North Fairfax Drive, Suite 250\\
+          Arlington, Virgina 22203\\
+          \url{www.casact.org}\\
+          (703) 276-3100}
+          \uppertitleback{}
+          \lowertitleback{Practical Mixed Models for Actuaries\\
+          By Ernesto Schirmacher\\
+          
+          Copyright 2025 by the Casualty Actuarial Society\\
+          
+          All rights reserved. No part of this publication may be reproduced, stored in a retrieval system, or 
+          transmitted, in any form or by any means, electronic, mechanical, photocopying, recording, or otherwise, 
+          without the prior written permission of the publisher. For information on obtaining permission for use of 
+          the material in this work, please submit a written request to the Casualty Actuarial Society.\\
+          
+          Library of Congress Cataloging-in-Publication Data\\
+          Practical Mixed Models for Actuaries / Ernesto Schirmacher\\
+          ISBN 978-1-7333294-5-3 (print edition)\\
+          ISBN 978-1-7333294-6-0 (electronic edition)}
+    papersize: letter
+    keep-tex: true
+    lof: false
+    lot: false
+    number-depth: 1
+    toc-title: Contents
+filters:
+   - latex-environment
+environments: [pmmexe,pmmsol]
+
+editor: source
+
+tbl-cap-location: top
+fig-cap-location: top
+
+callout-appearance: default
+callout-icon: false
+

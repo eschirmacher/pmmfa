@@ -1,0 +1,209 @@
+
+# Equivalence of Credibility Matrices {#sec-appendix-b}
+
+In
+@sec-credibility-theory we found an expression for the credibility
+matrix $A_j$ as shown in
+@eq-credibility-matrix-final-form,
+and in
+@sec-some-linear-mixed-model-theory, using linear mixed model theory,
+we found another expression, @eq-frees-credibility-matrix.
+We want to show here that these two seemingly different expressions
+are equivalent.
+
+
+
+@eq-frees-credibility-matrix
+says that, assuming the matrices $D$ and $W_j$ have the forms
+$$
+  D = \begin{bmatrix}
+        \tau_0^2 & 0 \\
+        0 & \tau_1^2
+      \end{bmatrix} \qquad\text{and}\qquad
+  W_j = \begin{bmatrix}
+        w_{j\bullet} & \sum_t t w_{jt} \\
+        \sum_t t w_{jt} & \sum_t t^2 w_{jt}
+      \end{bmatrix},
+$$
+then the credibility matrix $A_j$ is given by
+$$
+  A_j = \frac{\text{det}(D W_j)I_2 + \hat{\sigma}^2 D W_j}{\text{det}(D W_j) + 
+    \hat{\sigma}^2 \text{trace}(D W_j) + \hat{\sigma}^4}.
+$$ {#eq-app-b-credibility-matrix-frees}
+
+We want to show that this is equivalent to
+@eq-credibility-matrix-final-form, 
+that is,
+$$
+  A_j = \frac{w_{j\bullet}}{d}
+  \begin{bmatrix}
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + \kappa_1 & 
+    \kappa_1 E^{(s)}_j[t] \\ 
+    \kappa_0 E^{(s)}_j[t] & 
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + 
+    \kappa_0 E^{(s)}_j[t^2]
+  \end{bmatrix},
+$$ {#eq-app-b-credibility-matrix}
+where
+$$
+  d = (w_{j\bullet} + \kappa_0)
+    \left( w_{j\bullet} E^{(s)}_j[t^2] + \kappa_1 \right) - 
+    \left( w_{j\bullet} E^{(s)}_j[t] \right)^2
+$$
+and $\kappa_0 = \sigma^2 / \tau_0^2$ and $\kappa_1 = \sigma^2 / \tau_1^2$.
+
+
+The notations $E^{(s)}_j[t]$ and $\text{Var}^{(s)}_j[t]$ are shorthand
+for
+$$
+  E^{(s)}_j[t] = \sum_t \frac{w_{jt}}{w_{j\bullet}} t
+  \qquad\text{and}\qquad
+  \text{Var}^{(s)}_j[t] = E^{(s)}_j[t^2] - \left(E^{(s)}_j[t] \right)^2.
+$$
+
+### Equivalence of the Denominator
+
+We will start by showing that the denominator of
+@eq-app-b-credibility-matrix-frees
+is equal to $d$ in
+@eq-app-b-credibility-matrix.
+
+The matrix $D W_j$ is equal to
+$$
+  \begin{bmatrix}
+        \tau_0^2 w_{j\bullet} & \tau_0^2 \sum_t t w_{jt} \\
+        \tau_1^2 \sum_t t w_{jt} & \tau_1^2 \sum_t t^2 w_{jt}
+      \end{bmatrix}
+$$
+and hence its determinant is
+$$
+ \text{det}(DW_j) = \tau_0^2 \tau_1^2 w_{j\bullet}\sum_t t^2 w_{jt} -
+   \tau_0^2 \tau_1^2 \left( \sum_t t w_{jt} \right)^2,
+$$
+and its trace is
+$$
+  \text{tr}(DW_j) = \tau_0^2 w_{j\bullet} +
+    \tau_1^2 \sum_t t^2 w_{jt}.
+$$
+Therefore, the denominator is equal to
+$$
+  \tau_0^2 \tau_1^2 w_{j\bullet}\sum_t t^2 w_{jt} -
+   \tau_0^2 \tau_1^2 \left( \sum_t t w_{jt} \right)^2 +
+   \sigma^2 \tau_0^2 w_{j\bullet} +
+    \sigma^2 \tau_1^2 \sum_t t^2 w_{jt} + \sigma^4.
+$$
+In the above expression, we can replace the sums with the $E^{(s)}_j$
+notation to obtain
+$$
+  \tau_0^2 \tau_1^2 w^2_{j\bullet} E^{(s)}_j[t^2] -
+   \tau_0^2 \tau_1^2 w^2_{j\bullet} \left( E^{(s)}_j[t] \right)^2 +
+   \sigma^2 \tau_0^2 w_{j\bullet} +
+    \sigma^2 \tau_1^2 w_{j\bullet} E^{(s)}_j[t^2] + \sigma^4.
+$$
+Next, we factor out $\tau_0^2 \tau_1^2$, yielding
+$$
+  \tau_0^2 \tau_1^2
+  \left[
+    w^2_{j\bullet} E^{(s)}_j[t^2] - \left( w_{j\bullet}  E^{(s)}_j[t] \right)^2 +
+    \kappa_1 w_{j\bullet} + \kappa_0 w_{j\bullet} E^{(s)}_j[t^2] +
+    \kappa_0 \kappa_1
+  \right],
+$$
+and now we just rearrange like terms to get
+$$
+  \tau_0^2 \tau_1^2
+  \left[
+    (w_{j\bullet} + \kappa_0)
+      \left\{ w_{j\bullet} E^{(s)}_j[t^2] + \kappa_1 \right\} - 
+      \left( w_{j\bullet}  E^{(s)}_j[t] \right)^2
+  \right].
+$$
+Apart from the factor $\tau_0^2 \tau_1^2$, this is the same expression for the
+denominator in
+@eq-app-b-credibility-matrix
+that we wanted to show.
+The factor of $\tau_0^2 \tau_1^2$ will also appear in our calculations
+of the numerator, and thus it will cancel out.
+
+
+### Equivalence of the Numerator
+
+The numerator in
+@eq-app-b-credibility-matrix-frees
+and
+@eq-app-b-credibility-matrix
+is a $2 \times 2$ matrix, and so we will show the equivalence of the
+$(1,1)$, $(1,2)$, and $(2,2)$ entries.
+The entry at $(2,1)$ is similar to the $(1,2)$ entry.
+
+The $(1,1)$ entry in
+@eq-app-b-credibility-matrix-frees
+is equal to
+$$
+  \tau_0^2 \tau_1^2 w_{j\bullet} \sum_t t^2 w_{jt} - 
+  \tau_0^2 \tau_1^2 \left( \sum_t t w_{jt} \right)^2 +
+  \sigma^2 \tau_0^2 w_{j\bullet}
+$$
+Again we factor out $\tau_0^2 \tau_1^2$ to get
+$$
+  \tau_0^2 \tau_1^2
+  \left[
+    w_{j\bullet} \sum_t t^2 w_{jt} - \left( \sum_t t w_{jt} \right)^2 + \kappa_1 w_{j\bullet}
+  \right].
+$$
+Next, we multiply the first factor inside the square brackets by $w_{j\bullet} / w_{j\bullet}$
+and the second factor by $w^2_{j\bullet} / w^2_{j\bullet}.$
+This will allow us to rewrite these two items using $\text{Var}^{(s)}_j[t]$ as follows
+$$
+  \tau_0^2 \tau_1^2
+  \left[
+    w^2_{j\bullet} \text{Var}^{(s)}_j[t] + \kappa_1 w_{j\bullet}
+  \right].
+$$
+Now we factor out $w_{j\bullet}$ to obtain our final result
+$$
+  \tau_0^2 \tau_1^2 w_{j\bullet}
+  \left[
+     w_{j\bullet} \text{Var}^{(s)}_j[t] + \kappa_1
+  \right],
+$$
+which apart from the $\tau_0^2 \tau_1^2$ factor matches the $(1,1)$ entry in
+@eq-app-b-credibility-matrix.
+
+For the $(1,2)$ entry we start with
+$$
+ \sigma^2 \tau_0^2 \sum_t t w_{jt}.
+$$
+Multiply this expression by $w_{j\bullet} / w_{j\bullet}$ to obtain
+$$
+  \sigma^2 \tau_0^2 w_{j\bullet}\sum_j t \frac{w_{jt}}{w_{j\bullet}} =
+  \sigma^2 \tau_0^2 w_{j\bullet} E^{(s)}_j [t] = 
+  \tau_0^2 \tau_1^2 w_{j\bullet} \left[ \kappa_1 E^{(s)}_j [t] \right].
+$$
+Again, apart from the factor $\tau_0^2 \tau_1^2$, this is the expression
+we wanted to arrive at.
+
+Finally, for the $(2,2)$ entry we begin with
+$$
+  \tau_0^2 \tau_1^2 w_{j\bullet} \sum_t t^2 w_{jt} - 
+  \tau_0^2 \tau_1^2 \left( \sum_t t w_{jt} \right)^2 +
+  \sigma^2 \tau_1^2 \sum_t t^2 w_{jt}.
+$$
+Multiplying the first and the last terms by $w_{j\bullet} / w_{j\bullet}$ and 
+the second term by $w^2_{j\bullet} / w^2_{j\bullet}$ and simplifying by using
+the $E^{(s)}_j[]$ notation, we get
+$$
+  \tau_0^2 \tau_1^2 w^2_{j\bullet} E^{(s)}_j[t^2] - 
+  \tau_0^2 \tau_1^2 w^2_{j\bullet} \left( E^{(s)}_j[t] \right)^2 +
+  \sigma^2 \tau_1^2 w^2_{j\bullet} E^{(s)}_j[t^2].
+$$
+Now, factor out $\tau_0^2 \tau_1^2 w_{j\bullet}$ to  arrive at 
+$$
+  \tau_0^2 \tau_1^2 w_{j\bullet}
+  \left[
+    w_{j\bullet} \text{Var}^{(s)}_j [t] + \kappa_0 E^{(s)}_j[t^2]
+  \right].
+$$
+The factor $\tau_0^2 \tau_1^2$ will cancel with the same factor we have in the
+denominator, and so we have shown the equivalence of both expressions for the
+credibility matrix $A_j$.

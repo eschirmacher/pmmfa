@@ -1,0 +1,3593 @@
+
+# Applications
+
+```{r}
+#| include: false
+#| message: false
+
+library(patchwork)
+library(statmod)
+library(gamlss)
+library(MASS)
+library(dhglm)
+library(kableExtra)
+library(tidyverse)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+```
+
+
+
+
+
+## Massachusetts Auto Bodily Injury Claims
+
+For this example, we use a dataset of automobile bodily injury claims
+from the Commonwealth of Massachusetts.
+This data has been used to illustrate several different types of analyses,
+such as
+
+- modeling hidden exposures [@rempalaModelingHiddenExposures2005],
+- credibility using copulas [@freesCredibilityUsingCopulas2005], and
+- multivariate credibility [@freesMultivariateCredibilityAggregate2003].
+
+The data---available in the **R** package `CASdatasets` 
+[@dutangCASdatasetsInsuranceDatasets2020] under the name 
+`usmassBI2`---is longitudinal and describes the claims experience for 29
+randomly selected towns (out of more than 300) in Massachusetts for the years
+1993 to 1998.
+The variables available are `TOWNCODE`, `YEAR`, `AC` (average claims per unit of
+exposure), `PCI` (per capita income of the town), and `PPSM` (population
+per square mile).
+
+As described in
+@freesMultivariateCredibilityAggregate2003
+and 
+@freesCredibilityUsingCopulas2005,
+the average claim amounts have already been restated in 1991 dollars using the
+Consumer Price Index (CPI) in order to mitigate any time trends due
+to inflation.
+This data has also been analyzed in Chapter 15 of 
+@charpentierComputationalActuarialScience2015,
+and we follow that discussion.
+
+### Data Exploration
+
+```{r}
+#| echo: false
+#| label: load-mass-bi-data
+
+data("usmassBI2", package = "CASdatasets")
+```
+
+```{r}
+#| echo: false
+#| label: compute-usmassBI2-descriptive-statistics
+
+tb <- usmassBI2 |>
+  group_by(YEAR) |>
+  summarize("Mean" = mean(AC),
+            "Median" = median(AC),
+            "Std. deviation" = sd(AC),
+            "Minimum" = min(AC),
+            "Maximum" = max(AC)) |>
+  pivot_longer(cols = 2:6, 
+               names_to = "measure",
+               values_to = "value") |>
+  pivot_wider(names_from = YEAR,
+              values_from = value)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-usmass-bi-descriptive-statistics
+#| tbl-cap: "Descriptive statistics for average claims per unit of exposure for a random sample of 29 towns in Massachusetts. Dollar amounts have been restated to 1991 using the CPI."
+
+tb |>
+  kbl(booktabs = TRUE,
+      col.names = c("", 1993:1998),
+      digits = c(0, rep(2, 6))) |>
+  add_header_above(c(" ", "Average Claim Amount" = 6)) |>
+  kable_classic()
+rm(tb)
+```
+
+@tbl-usmass-bi-descriptive-statistics
+displays the descriptive statistics for average claim size
+by calendar year.
+Note that the means and medians look reasonably stable
+across calendar years.
+In addition, the standard deviation seems to hover around 35, and 
+the maximums and minimums do not seem to fluctuate heavily;
+therefore, it seems like the distributions are stable across
+years.
+
+In
+@fig-usmass-bi-multiple-time-series-plot
+we have a multiple time series plot (a.k.a. a spaghetti plot) where each line
+represents the observations, across time, for one town.
+Two towns have been highlighted: 35 and 53.
+Town code 35 has large average claims in the first couple of years, and
+town code 53 has some of the lowest claims across all years.
+@fig-umass-bi-average-claim-by-pci-and-ppsm
+displays average claim cost against per capita income and population
+per square mile.
+Again, towns 35 and 53 are highlighted: note that
+town 53 is sparsely populated and has a high per capita income, whereas
+town 35 has the highest population density and fairly large average
+claim costs.
+Also, note that for each town the per capita income and population per square
+mile do not fluctuate much by year, but the average claims do.
+Based on this observation, when modeling the average claim cost,
+an intercept for each town would make sense.
+
+```{r}
+#| echo: false
+#| label: fig-usmass-bi-multiple-time-series-plot
+#| fig-cap: "Multiple time series plot of average claims per unit of exposure. Each time series corresponds to one of the 29 towns in the data. The red dots joined by pink lines correspond to town code 35, which has some of the highest average claims during the first couple of years. The blue points joined by light blue lines correspond to town code 53, which has some of the lowest average claims."
+
+ggplot(data = filter(usmassBI2,
+                     TOWNCODE != 35 & TOWNCODE != 53),
+       mapping = aes(x = YEAR,
+                     y = AC,
+                     group = TOWNCODE)) +
+  geom_line(color = "gray") +
+  geom_point(color = "darkgray") +
+  geom_line(data = filter(usmassBI2,
+                          TOWNCODE == 35),
+            mapping = aes(x = YEAR,
+                          y = AC),
+            color = "pink") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 35),
+             mapping = aes(x = YEAR,
+                           y = AC),
+             color = "red") +
+  geom_line(data = filter(usmassBI2,
+                          TOWNCODE == 53),
+            mapping = aes(x = YEAR,
+                          y = AC),
+            color = "lightblue") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 53),
+             mapping = aes(x = YEAR,
+                           y = AC),
+             color = "blue") +
+  labs(x = "Calendar Year",
+       y = "Average Claim")
+```
+
+```{r}
+#| echo: false
+#| label: fig-umass-bi-average-claim-by-pci-and-ppsm
+#| fig-cap: "Average claim sizes by per capita income (in thousands of dollars) and population per square mile (in log base 10 scale). The red points correspond to town code 35, and the blue points correspond to town code 53."
+
+p <- ggplot(data = filter(usmassBI2,
+                          TOWNCODE != 35 & TOWNCODE != 53),
+            mapping = aes(x = PCI / 1000,
+                          y = AC)) +
+  geom_point(color = "darkgray") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 35),
+             mapping = aes(x = PCI / 1000,
+                           y = AC),
+             color = "red") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 53),
+             mapping = aes(x = PCI / 1000,
+                           y = AC),
+             color = "blue") +
+  labs(x = "Per Capita Income ($000)",
+       y = "Average Claim Cost") +
+  theme(legend.position = "none")
+
+q <- ggplot(data = filter(usmassBI2,
+                          TOWNCODE != 35),
+            mapping = aes(x = log(PPSM),
+                          y = AC)) +
+  geom_point(color = "darkgray") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 35),
+             mapping = aes(x = log(PPSM),
+                           y = AC),
+             color = "red") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 53),
+             mapping = aes(x = log(PPSM),
+                           y = AC),
+             color = "blue") +
+  labs(x = "Population per Sq. Mile (log-scale)",
+       y = "Average Claim Cost") +
+  theme(legend.position = "none")
+p + q
+rm(p, q)
+```
+
+@fig-usmass-bi-average-claim-histogram-and-density
+displays the histogram of average claim size across all towns
+and years along with a nonparametric estimate of the density
+(solid line) and a normal distribution (dashed line)
+matching the first two moments.
+Overall, the normal distribution fits this data well.
+
+```{r}
+#| echo: false
+#| label: fig-usmass-bi-average-claim-histogram-and-density
+#| fig-cap: "Histogram of average claim costs along with a nonparametric estimate of the density function (solid line) and a normal density function (dashed line) chosen to match the empirical mean and standard deviation across all towns and all years."
+
+ggplot(data = usmassBI2,
+       mapping = aes(x = AC)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "grey") +
+  geom_density(linewidth = 0.75) +
+  geom_line(data = tibble(x = seq(25, 275, length = 100),
+                          y = dnorm(x, mean = 137.32, sd = 35.18)),
+            mapping = aes(x = x, y = y),
+            color = "blue",
+            linetype = "dashed",
+            linewidth = 0.75) +
+  labs(x = "Average Claim Cost",
+       y = "Density")
+```
+
+### Modeling Average Claim Size
+
+From our exploratory analysis we can start our modeling
+of average claim cost by using a normal distribution for the response
+variable and applying the following transformations to the explanatory
+variables:
+
+1. Shift the origin for `YEAR` to 1992 (that is, center this variable at 1992).
+1. Scale the per capita income to measure it in thousands of dollars.
+1. Compute the logarithm of population per square mile.
+
+Also, we will take calendar years 1993 to 1997 to train our models
+and keep 1998 for validation purposes.
+
+```{r}
+#| echo: true
+#| label: usmass-bi-transform-variables-and-create-subset
+
+usmassBI2 <- usmassBI2 |>
+  mutate(YR = YEAR - 1992,
+         lnPPSM = log(PPSM),
+         PCI.k = PCI / 1000)
+
+db.train <- usmassBI2 |>
+  filter(YEAR < 1998)
+db.test <- usmassBI2 |>
+  filter(YEAR == 1998)
+```
+
+#### Complete Pooling
+
+First, we fit a model ignoring the `TOWNCODE` variable---thus
+we are pooling all of our data together, implicitly assuming that
+all the towns in Massachusetts form a single homogeneous group.
+This is clearly not a reasonable assumption, but it is a good 
+starting point.
+
+```{r}
+#| echo: true
+#| label: usmass-bi-pooled-model
+
+bi.all <- lm(AC ~ PCI.k + lnPPSM + YR,
+             data = db.train)
+summary(bi.all)
+```
+
+The estimated value of the intercept,
+`r round(coef(bi.all)["(Intercept)"], 2)`,
+is the average claim cost in 1992 for a town that has
+a population density of one person per square mile and 
+a per capita income of zero.
+Such a town does not exist in Massachusetts.
+The average per capita income (in thousands) and the logarithm 
+of the population per square mile across all towns in our data
+are
+`r round(mean(db.train$PCI.k), 2)`
+and 
+`r round(mean(db.train$lnPPSM), 2)`, 
+respectively.
+Therefore,
+using our current model, we would estimate the expected 
+claim costs in 1993 to be
+$$
+68.87 - 4.24 \cdot 20.06 + 22.34 \cdot 6.38 + 3.84 \cdot 1 = 130.18,
+$$
+close to the middle of the data for 1993 shown in
+@fig-usmass-bi-multiple-time-series-plot.
+
+The coefficient for calendar year of 
+`r  round(coef(bi.all)["YR"], 2)`
+tells us that as we move from one year to the next, the average
+claim cost will increase by this dollar amount.
+Keeping in mind that the data had already been adjusted to
+account for inflation, we must attribute this increase to other
+sources.
+As per capita income increases by $1,000, we see a decline in
+the average claim cost of
+`r round(abs(coef(bi.all)["PCI.k"]), 2)`.
+And if we had a 10% increase in population density, the
+average claim cost would increase by about
+`r round(coef(bi.all)["lnPPSM"] * log(1.1), 2)`.
+
+```{r}
+#| include: false
+#| label: usmass-bi-compute-diagnostics-bi.all
+
+db.train <- db.train |>
+  mutate(bi.all.mu = predict(bi.all),
+         bi.all.rS = rstandard(bi.all))
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-usmass-bi-diagnostic-plots-bi-all-one
+#| fig-cap: "Diagnostic plots for model `bi.all`.  Left-hand panel shows standardized residuals versus fitted values, and the right-hand panel is the absolute value of the standardized residuals against the fitted values. The blue line in each panel is a scatterplot smooth line showing the overall trend of the points."
+
+p1 <- ggplot(data = db.train,
+             mapping = aes(x = bi.all.mu,
+                           y = bi.all.rS)) +
+  geom_point() +
+  geom_smooth(se = TRUE) +
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals")
+p2 <- ggplot(data = db.train,
+             mapping = aes(x = bi.all.mu,
+                           y = abs(bi.all.rS))) +
+  geom_point() +
+  geom_smooth(se = TRUE) +
+  labs(x = "Fitted Values",
+       y = "|Standardized Residuals|")
+(p1 + p2)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-usmass-bi-diagnostic-plots-bi-all-two
+#| fig-cap: "Diagnostic plots for model `bi.all`. Each panel shows the standardized residuals against a predictor variable.  The blue line in each panel shows the overall trend of points."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p1 <- ggplot(data = db.train,
+             mapping = aes(x = YEAR,
+                           y = bi.all.rS)) +
+  geom_point() +
+  geom_smooth(se = TRUE) +
+  labs(x = "Calendar Year",
+       y = "Standardized Residuals")
+p2 <- ggplot(data = db.train,
+             mapping = aes(x = PCI.k,
+                           y = bi.all.rS)) +
+  geom_point() +
+  geom_smooth(se = TRUE) +
+  labs(x = "Per Capita Income ($000)",
+       y = "Standardized Residuals")
+
+p3 <- ggplot(data = db.train,
+             mapping = aes(x = lnPPSM,
+                           y = bi.all.rS)) +
+  geom_point() +
+  geom_smooth(se = TRUE) +
+  labs(x = "Log Population per Square Mile",
+       y = "Standardized Residuals")
+(p1 + p2) / (p3 + (plot_spacer() + 
+                     theme(plot.margin = unit(c(0,0,0,33), "pt"))))
+rm(p1, p2, p3)
+```
+
+@fig-usmass-bi-diagnostic-plots-bi-all-one
+and
+@fig-usmass-bi-diagnostic-plots-bi-all-two
+show diagnostic plots for the model `bi.all`.
+All five plots show that the model seems adequate.
+The left-hand panel of
+@fig-usmass-bi-diagnostic-plots-bi-all-one
+shows the expected pattern of a random cloud of points centered 
+about $y = 0$.
+There are four observations with residuals greater than 2.
+Three of these observations come from `TOWNCODE` 45 and one from
+`TOWNCODE` 16.
+@fig-usmass-bi-multiple-time-series-plot-highlight-high-residual-towns
+reproduces @fig-usmass-bi-multiple-time-series-plot but highlights
+town codes 45 and 16.
+Looking at calendar year 1995 in
+@fig-usmass-bi-multiple-time-series-plot-highlight-high-residual-towns,
+town code 45 corresponds to the red-colored points connected by pink
+lines. Starting in 1995, this town has some of the highest average
+claim costs of all towns.
+Tracing the line for town code 16 (blue-colored points and connecting
+lines), we can see that whereas in 1995 the town had a large
+average claim cost, in all other years the average claim cost remained
+stable.
+
+```{r}
+#| echo: false
+#| label: fig-usmass-bi-multiple-time-series-plot-highlight-high-residual-towns
+#| fig-cap: "Multiple time series plot of average claim per unit of exposure. Each time series corresponds to one of the 29 towns in the data. Here we highlight the two towns (`TOWNCODE` 45 and 16) that have the four highest residuals. `TOWNCODE 45` is in red with pink connecting lines, and `TOWNCODE` 16 is in blue with light blue connecting lines."
+
+ggplot(data = filter(usmassBI2,
+                     TOWNCODE != 45 & TOWNCODE != 16),
+       mapping = aes(x = YEAR,
+                     y = AC,
+                     group = TOWNCODE)) +
+  geom_line(color = "gray") +
+  geom_point(color = "darkgray") +
+  geom_line(data = filter(usmassBI2,
+                          TOWNCODE == 45),
+            mapping = aes(x = YEAR,
+                          y = AC),
+            color = "pink") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 45),
+             mapping = aes(x = YEAR,
+                           y = AC),
+             color = "red") +
+  geom_line(data = filter(usmassBI2,
+                          TOWNCODE == 16),
+            mapping = aes(x = YEAR,
+                          y = AC),
+            color = "lightblue") +
+  geom_point(data = filter(usmassBI2,
+                           TOWNCODE == 16),
+             mapping = aes(x = YEAR,
+                           y = AC),
+             color = "blue") +
+  labs(x = "Calendar Year",
+       y = "Average Claim")
+```
+
+The right-hand panel of
+@fig-usmass-bi-diagnostic-plots-bi-all-one
+shows a fairly uniform spread of points as the fitted values
+increase; thus, our assumption that the distribution of the 
+response variable, average claim size, is normally distributed seems
+appropriate.
+Note that for the largest fitted values we see an upward
+trend, letting us know that for these values we have more
+variability in our data than our model provides.
+
+In
+@fig-usmass-bi-diagnostic-plots-bi-all-two,
+we have plotted the three explanatory variables against the
+standardized residuals.
+For calendar year we see no meaningful patterns.
+For per capita income, we observe that in the range
+from 20,000 to 25,000, the model tends to overpredict, and above 25,000,
+the model systematically underpredicts.
+While the overall pattern is flat for the logarithm of population per
+square mile, there are a few isolated places where the model 
+tends to overpredict (below 5) and underpredict (slightly above 5.5).
+
+
+#### No Pooling
+
+In the previous section, we pooled all of our data, assuming that
+all 29 sampled towns in Massachusetts would create a homogeneous
+group, and fitted the linear model
+$$
+  \mathbb{E}[\text{AC}] = \beta_0 + 
+    \beta_1 \text{PCI.k} + 
+    \beta_2 \log(\text{PPSM}) + 
+    \beta_3 \text{YR}.
+$$
+
+We can take a diametrically opposite stance and assume that no 
+two towns are similar in any way.
+With this view, we would fit the above linear model to each town
+separately, thus creating
+`r length(unique(db.train$TOWNCODE))`
+linear models.
+Some of them fit well, while others do not.
+For example, we can collect for each model the $R^2$ measure as an
+indicator of model fit (not advocating this is a good measure), yielding
+
+```{r}
+#| echo: false
+#| label: usmass-bi-split-the-data-for-each-town-and-fit-linear-model
+
+twns <- unique(as.character(db.train$TOWNCODE))
+twn.db <- map(twns, 
+              \(x) filter(db.train, TOWNCODE == x) |>
+                select(AC, PCI.k, lnPPSM, YR, YEAR, TOWNCODE))
+names(twn.db) <- twns
+
+twns.lm <- map(twn.db,
+               \(d) lm(AC ~ PCI.k + lnPPSM + YR,
+                       data = d))
+```
+
+```{r}
+#| echo: false
+#| label: usmass-bi-compute-r-squared-for-individual-fits
+
+map_dbl(twns.lm, 
+        \(x) summary(x)$r.squared) |>
+  sort() |>
+  round(3)
+```
+
+For town codes 50, 39, and 42, the adjusted $R^2$ measure is extremely low
+(less than 9%), and for town codes 17, 52, and 13 (middle of the list), the $R^2$ measure is 
+74.2%, 79.0%, and 81.1%, respectively.
+For town codes 32, 11, and 36, the measure is above 99.5%.
+@fig-usmass-bi-low-mid-high-r-squared-regressions
+shows an actual-versus-expected plot for these nine towns arranged from 
+low $R^2$ values to high.
+The gray line represents the line of perfect fit, that is, $y = x$
+in each panel.
+
+```{r}
+#| include: false
+#| label: usmass-bi-grab-data-low-mid-high-r-squared
+
+tb <- bind_rows(bind_cols(twn.db[["50"]], mu = predict(twns.lm[["50"]])),
+                bind_cols(twn.db[["39"]], mu = predict(twns.lm[["39"]])),
+                bind_cols(twn.db[["42"]], mu = predict(twns.lm[["42"]])),
+                
+                bind_cols(twn.db[["17"]], mu = predict(twns.lm[["17"]])),
+                bind_cols(twn.db[["52"]], mu = predict(twns.lm[["52"]])),
+                bind_cols(twn.db[["13"]], mu = predict(twns.lm[["13"]])),
+                
+                bind_cols(twn.db[["32"]], mu = predict(twns.lm[["32"]])),
+                bind_cols(twn.db[["11"]], mu = predict(twns.lm[["11"]])),
+                bind_cols(twn.db[["36"]], mu = predict(twns.lm[["36"]])))
+tb$TOWNCODE <- fct_drop(tb$TOWNCODE)
+tb$TOWNCODE <- fct_relevel(tb$TOWNCODE,
+                           c("32","11","36","17","52","13","50","39","42"))
+```
+
+```{r}
+#| echo: false
+#| label: fig-usmass-bi-low-mid-high-r-squared-regressions
+#| fig-cap: "Actual versus predicted average claim costs from the regression lines fitted to each town individually. Towns 32, 11, and 36 have the highest $R^2$ values, and towns 50, 39, and 42 have the lowest values.  Towns 17, 52, and 13 are in the middle when $R^2$ measures are sorted. The panels are arranged from the lowest $R^2$ in the bottom-left corner to the highest $R^2$ value in the top-right corner. The gray line in each panel represents the line of perfect fit $(y = x)$."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+ggplot(data = tb,
+       mapping = aes(x = AC,
+                     y = mu)) +
+  geom_point() +
+  geom_abline(slope = 1,
+              color = "gray") +
+  labs(x = "Actual Average Claim Cost",
+       y = "Expected Average Claim Cost") +
+  facet_wrap(vars(TOWNCODE),
+             scales = "free")
+rm(tb)
+```
+
+Clearly for the top three panels in
+@fig-usmass-bi-low-mid-high-r-squared-regressions
+the models accurately predict the actual average claims, and we would
+feel confident in using them to predict the claims experience in the
+next calendar year.
+But do we feel similarly about the bottom three models?
+For town code 50, actual experience in the past five years ranged from
+about 105 to 135---quite volatile.
+The model's range of values is from about 119 to 124---a very small
+range.
+The probability that our prediction (whatever it might be) reflects actual
+experience would be quite low.
+
+Thus we have that some towns are highly credible in their experience
+while others are not.
+Based on
+@fig-usmass-bi-multiple-time-series-plot,
+we should include a town-specific intercept in our model.
+
+
+#### Fixed-Effects Model
+
+Consider incorporating a town-specific intercept into the regression
+model.
+Thus we want to fit the model
+$$
+  \mathbb{E}[\text{AC}] = \alpha_i + 
+    \beta_1 \text{PCI.k} + 
+    \beta_2 \log(\text{PPSM}) +
+    \beta_3 \text{YR},
+$$
+where $\alpha_i$ represents the intercept for town $i$.
+We can accomplish this by treating `TOWNCODE` as a categorical
+variable in our model.
+
+```{r}
+#| echo: true
+#| label: usmass-bi-fixed-effects-model
+
+bi.fixed <- lm(AC ~ TOWNCODE + PCI.k + lnPPSM + YR,
+               data = db.train)
+summary(bi.fixed)
+```
+
+In our model, the intercept represents the average
+claims experience for `TOWNCODE` 10 with a zero per capita
+income, one person per square mile, and the variable `YR`
+set to zero (i.e., 1992).
+This number does not have practical significance because we
+know that town code 10 does not have a per capita
+income of zero or a population of one person per square
+mile.
+In town code 10, the per capita income is about $18,500 and 
+the logarithm of the population per square mile is about 7.3.
+The other `TOWNCODE` coefficients measure deviations from
+`TOWNCODE` 10 with the other variables set as before.
+
+Note that some of the town-specific coefficients are not
+significant, and many of them are significant at the 10%
+level but not at the 5% level.
+Per capita income and population per square mile are no
+longer significant, and the effect of calendar year has
+increased to almost 6 and is significant at the 5% level.
+More importantly, an estimated yearly increase of $6 is of 
+practical significance because it represents about a 4.4% 
+increase from the overall average claim cost over inflation (across all
+towns and years) of $138.
+
+With this model we have estimated coefficients for the
+`r length(unique(db.train$TOWNCODE))` 
+specific towns.
+And while we can make inferences for them, they are
+just a sample of the more than 300 towns in the state, and we
+could not easily justify using them to make inferences about
+other towns in the state.
+In the next section, we'll treat these towns as a random sample
+of the larger population of towns and fit a random-effects
+model to this data.
+
+
+
+#### Random-Effects Model
+
+Instead of treating the intercepts $\alpha_i$ for each of the
+`r length(unique(db.train$TOWNCODE))`
+sampled towns in Massachusetts as fixed, we can treat them as
+random variables and fit the following LMM:
+$$
+  \mathbb{E}[\text{AC}] = \alpha_i + \beta_0 +
+    \beta_1 \text{PCI} +
+    \beta_2 \log(\text{PPSM}) +
+    \beta_3 \text{YR},
+$$
+where $\alpha_i$ is a normal random variable with mean zero and
+variance $\sigma_\alpha$.
+The index $i$ runs through all the towns, and we fit this model
+as follows:
+
+```{r}
+#| echo: true
+#| label: us-mass-random-intercept-model
+
+bi.rnd.int <- lme(AC ~ PCI.k + lnPPSM + YR,
+                  data = db.train,
+                  random = ~ 1 | TOWNCODE)
+summary(bi.rnd.int)
+```
+
+The above output tells us that the random intercepts
+$\alpha_i$ have a standard deviation equal to
+$\sigma_\alpha = `r round(18.44886, 2)`$.
+This is the variability between the towns.
+Actuaries would call its square the 
+*variance of the hypothetical means*, or VHM, and
+statisticians would call it the
+*between-group variability*.
+The residual standard deviation is equal to
+$\sigma = `r round(bi.rnd.int[["sigma"]], 2)`$---statisticians 
+call this the
+*within-group variability*, and actuaries would
+say that its square is the
+*expected value of the process variance*, or EVPV.
+Note that the *between*-town and the *within*-town 
+standard deviations are quite similar.
+The ratio
+$$
+  \frac{\sigma_\alpha}{\sigma_\alpha + \sigma} = 
+  \frac{18.45}{18.45 + 19.02} = 49.2\%
+$$
+is known as the intraclass correlation.
+For our data this ratio is close to 50%, letting us know
+that the observations within a town are mildly correlated.
+
+Note that the fixed effects for per capita income,
+population per square mile, and year are all statistically
+significant.
+The coefficient for calendar year is now estimated at 
+$`r round(fixef(bi.rnd.int)["YR"], 2)`---still 
+a sizable increase beyond the adjustment
+made to the data (prior to loading it) based on the CPI.
+
+@fig-usmass-bi-lme-model-random-intercepts-fv-versus-residuals
+shows a diagnostic plot for the model where the $y$-axis has
+the standardized residuals and on the $x$-axis we have the
+fitted values.
+From this plot we can see that the assumption that our
+response variable has constant variance is reasonable.
+We do not see any fanning in or out of the residuals.
+There are no clear outliers in the plot, and so our 
+assumption that the data comes from a single data-generating 
+process (as defined by our model) also
+seems reasonable.
+
+```{r}
+#| echo: false
+#| label: fig-usmass-bi-lme-model-random-intercepts-fv-versus-residuals
+#| fig-cap: "Standardized residuals versus fitted values for the random intercept model fitted to the sample of Massachusetts towns."
+
+ggplot(data = tibble(fv = fitted(bi.rnd.int),
+                     sr = residuals(bi.rnd.int, 
+                                    type = "normalized")),
+       mapping = aes(x = fv,
+                     y = sr)) +
+  geom_point() +
+  labs(x = "Fitted Values",
+       y = "Standardized Residuals")
+```
+
+
+The between-town variability $\sigma_\alpha$ certainly seems large
+enough to be significant, but we should check.
+The `intervals()` function will display approximate 95% confidence
+intervals for fixed as well as random effects.
+
+```{r}
+#| echo: true
+#| label: usmass-bi-confidence-intervals-for-random-effects-models
+
+intervals(bi.rnd.int)
+```
+
+Based on the above output, the between-town variability is
+clearly significant.
+Our current model has four fixed parameters and one random
+parameter even though we have 
+`r length(unique(db.train$TOWNCODE))`
+different towns.
+If we expanded our data to include more towns,
+this model will still have only five parameters.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+From our multiple series plot,
+@fig-usmass-bi-multiple-time-series-plot,
+we might suspect that different towns should have different
+slope coefficients for the predictor variable `YR`.
+Should we add a random component for this variable? 
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+If we want to add a random component to the slope of `YR`, then
+we want to fit the following model:
+$$
+  \mathbb{E}[\text{AC}] = \alpha_i + \beta_0 +
+    \beta_1 \text{PCI} +
+    \beta_2 \log(\text{PPSM}) +
+    (\beta_3 + \gamma_i) \text{YR},
+$$
+where both $\alpha_i$ and $\gamma_i$ are random variables.
+
+We can fit that model and display approximate 95% confidence intervals
+for the parameters via
+
+```{r}
+#| echo: true
+#| label: usmass-bi-random-slope-model-html
+
+bi.rnd.slope <- lme(AC ~ PCI.k + lnPPSM + YR,
+                    data = db.train,
+                    random = ~ 1 + YR | TOWNCODE)
+intervals(bi.rnd.slope)
+```
+
+From the output, we can see that the standard deviation for
+the random slope $\sigma_\gamma$ has been estimated at
+2.41 and its confidence interval does not include zero;
+therefore, the model suggests that a random slope for each 
+town is important.
+
+A five-point summary of the estimated random slopes yields
+
+```{r}
+#| echo: true
+#| label: usmass-bi-random-slopes-summary-html
+
+summary(ranef(bi.rnd.slope)[["YR"]])
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+From our multiple series plot,
+@fig-usmass-bi-multiple-time-series-plot,
+we might suspect that different towns should have different
+slope coefficients for the predictor variable `YR`.
+Should we add a random component for this variable? 
+
+:::
+
+::: {.pmmsol}
+
+If we want to add a random component to the slope of `YR`, then
+we want to fit the following model:
+$$
+  \mathbb{E}[\text{AC}] = \alpha_i + \beta_0 +
+    \beta_1 \text{PCI} +
+    \beta_2 \log(\text{PPSM}) +
+    (\beta_3 + \gamma_i)  \text{YR},
+$$
+where both $\alpha_i$ and $\gamma_i$ are random variables.
+
+We can fit that model and display approximate 95% confidence intervals
+for the parameters via
+
+```{r}
+#| echo: true
+#| label: usmass-bi-random-slope-model-pdf
+
+bi.rnd.slope <- lme(AC ~ PCI.k + lnPPSM + YR,
+                    data = db.train,
+                    random = ~ 1 + YR | TOWNCODE)
+intervals(bi.rnd.slope)
+```
+
+From the output, we can see that the standard deviation for
+the random slope $\sigma_\gamma$ has been estimated at
+2.41 and its confidence interval does not include zero;
+therefore, the model suggests that a random slope for each 
+town is important.
+
+A five-point summary of the estimated random slopes yields
+
+```{r}
+#| echo: true
+#| label: usmass-bi-random-slopes-summary-pdf
+
+summary(ranef(bi.rnd.slope)[["YR"]])
+```
+
+:::
+
+:::
+
+
+#### Model Predictions
+
+So far we have estimated four models:
+
+- `bi.all`: complete pooling of all data,
+- `bi.fixed`: fixed effects for `TOWNCODE`,
+- `bi.rnd.int`: random effects for `TOWNCODE`, and
+- `bi.rnd.slope`: random effects for `TOWNCODE` and `YR`.
+
+```{r}
+#| include: false
+#| label: usmass-bi-gather-models
+
+bi.models <- list(bi.all,
+                  bi.fixed,
+                  bi.rnd.int,
+                  bi.rnd.slope)
+```
+
+
+```{r}
+#| include: false
+#| label: usmass-bi-compute-predictions-from-all-models
+
+db.train <- db.train |>
+  mutate(bi.all.mu = predict(bi.all),
+         bi.fixed.mu = predict(bi.fixed),
+         bi.rnd.int.mu = predict(bi.rnd.int),
+         bi.rnd.slope.mu = predict(bi.rnd.slope))
+
+db.test <- db.test |>
+  mutate(bi.all.mu = predict(bi.all, 
+                             newdata = db.test),
+         bi.fixed.mu = predict(bi.fixed, 
+                               newdata = db.test),
+         bi.rnd.int.mu = predict(bi.rnd.int, 
+                                 newdata = db.test),
+         bi.rnd.slope.mu = predict(bi.rnd.slope, 
+                                   newdata = db.test))
+```
+
+```{r}
+#| include: false
+#| label: usmass-bi-performance-measurement-functions
+
+MSPE <- function(x, y) mean((x - y)^2)
+MAPE <- function(x, y) mean(abs(x - y))
+```
+
+```{r}
+#| include: false
+#| label: usmass-bi-compute-performance-statistics
+
+tb <- tibble(model = c("bi.all", "bi.fixed", "bi.rnd.int", "bi.rnd.slope"),
+             AIC.in = map_dbl(bi.models,
+                              \(x) AIC(x)),
+             BIC.in = map_dbl(bi.models,
+                              \(x) BIC(x)),
+             MSPE.in = c(MSPE(db.train$AC, db.train$bi.all.mu),
+                         MSPE(db.train$AC, db.train$bi.fixed.mu),
+                         MSPE(db.train$AC, db.train$bi.rnd.int.mu),
+                         MSPE(db.train$AC, db.train$bi.rnd.slope.mu)),
+             MAPE.in = c(MAPE(db.train$AC, db.train$bi.all.mu),
+                         MAPE(db.train$AC, db.train$bi.fixed.mu),
+                         MAPE(db.train$AC, db.train$bi.rnd.int.mu),
+                         MAPE(db.train$AC, db.train$bi.rnd.slope.mu)),
+             MSPE.out = c(MSPE(db.test$AC, db.test$bi.all.mu),
+                          MSPE(db.test$AC, db.test$bi.fixed.mu),
+                          MSPE(db.test$AC, db.test$bi.rnd.int.mu),
+                          MSPE(db.test$AC, db.test$bi.rnd.slope.mu)),
+             MAPE.out = c(MAPE(db.test$AC, db.test$bi.all.mu),
+                          MAPE(db.test$AC, db.test$bi.fixed.mu),
+                          MAPE(db.test$AC, db.test$bi.rnd.int.mu),
+                          MAPE(db.test$AC, db.test$bi.rnd.slope.mu)))
+```
+
+
+
+```{r}
+#| echo: false
+#| label: tbl-usmass-bi-performance-table
+#| tbl-cap: "Comparison metrics for all four models using both the training and validation data. AIC is the Akaike information criterion, BIC is the Bayesian information criterion, MSPE is the mean squared prediction error, and MAPE is the mean absolute prediction error."
+
+tb |>
+  kbl(booktabs = TRUE,
+      digits = c(0, rep(2, 6)),
+      format.args = list(big.mark = ","),
+      col.names = c("Model", "AIC", "BIC", "MSPE", "MAPE", "MSPE", "MAPE")) |>
+  add_header_above(c(" " = 1, "Training Data" = 4, "Validation Data" = 2)) |>
+  kable_classic()
+rm(tb)
+```
+
+From these models we can compute predictions for the training data as well as
+the validation data and compare them with the actual observations.
+@tbl-usmass-bi-performance-table shows the following performance measures on the
+training data: 
+
+- AIC, Akaike information criterion,
+- BIC, Bayesian information criterion,
+- MSPE, mean squared prediction error, and
+- MAPE, mean absolute prediction error.
+
+For the validation data we use MSPE and MAPE.
+
+The worst model, across all measures, is `bi.all`, where we ignored the 
+variable `TOWNCODE`.
+Many modelers use AIC/BIC as part of their model selection criteria.
+Across the above models, AIC would select the `bi.fixed` model and 
+BIC would go with `bi.rnd.int`.
+Both measures of prediction error, computed on the training data,
+suggest that the fixed-effects model, `bi.fixed`, is the better choice.
+We know full well that relying on any measure of performance based on
+the training data may lead us astray!
+
+We can see that both prediction error measures
+are larger on the validation data than on the training data and both measures have their minimum
+for the random intercept model, `bi.rnd.int`.
+Our selected model is the random intercept model:
+$$
+  \mathbb{E}[\text{AC}] = (\beta_0 + \alpha_i) +
+    \beta_1 \cdot \text{PCI} +
+    \beta_2 \cdot \log(\text{PPSM}) +
+    \beta_3 \cdot \text{YR}.
+$$
+@fig-bi-usmass-actual-vs-expected-rnd-int-model
+shows the actual data from 1993 to 1998 together with the predictions for
+1998 based on the training data (1993--1997).
+The predictions are in open red-colored circles and are joined to their
+actual values by a pink line.
+
+```{r}
+#| include: false
+#| label: bi-usmass-compute-data-for-actual-vs-expected-rnd-int-model
+
+gap <- 0.2
+db.all <- bind_rows(db.train, db.test)
+db.all <- db.all |>
+  mutate(YEAR = ifelse(YEAR == 1998, 1998 - gap, YEAR))
+db.tmp <- db.test
+db.tmp <- bind_rows(db.tmp, db.tmp)
+db.tmp[1:29, "YEAR"] <- 1998 - gap
+db.tmp[30:58, "YEAR"] <- 1998 + gap
+db.tmp[30:58, "AC"] <- db.tmp[1:29, "bi.rnd.int.mu"]
+
+rm(gap)
+```
+
+
+
+```{r}
+#| echo: false
+#| label: fig-bi-usmass-actual-vs-expected-rnd-int-model
+#| fig-cap: "Time series plot of actual claim costs across calendar years for the 29 randomly selected Massachusetts towns (shown in black) for the training data (1993--1997). The actual 1998 experience is shown in gray along with the predicted values from the random intercept model (shown in red)."
+
+ggplot(data = db.all,
+       mapping = aes(x = YEAR,
+                     y = AC,
+                     group = TOWNCODE)) +
+  geom_line(color = "gray") +
+  geom_line(data = db.tmp,
+             mapping = aes(x = YEAR,
+                           y= AC,
+                           group = TOWNCODE),
+             color = "pink") +
+  geom_point() +
+  geom_point(data = db.tmp[1:29,],
+             mapping = aes(x = YEAR,
+                           y = AC,
+                           group = TOWNCODE),
+             color = "gray") +
+  geom_point(data = db.tmp[30:58,],
+             mapping = aes(x = YEAR,
+                           y = AC,
+                           group = TOWNCODE),
+             color = "red",
+             pch = 1) +
+  labs(x = "Calendar Year",
+       y = "Average Claim Costs")
+
+rm(db.all, db.tmp)
+```
+
+```{r}
+#| include: false
+
+rm(list = ls())
+```
+
+
+
+
+
+
+
+
+
+
+## Hospital Length of Stay
+
+The length of stay at a hospital is a measure health
+organizations track, and it is important to understand some 
+of the patient characteristics
+that may influence it.
+The following example comes from
+@hilbeNegativeBinomialRegression2007,
+and the data is a random sample of patients drawn from the state of Arizona
+Medicare program for a single undisclosed diagnostic group.
+The data, `medpar`, is available at the 
+[book's website](https://www.cambridge.org/us/universitypress/subjects/statistics-probability/statistical-theory-and-methods/negative-binomial-regression-2nd-edition?format=HB).
+
+```{r}
+#| echo: false
+#| message: false
+#| label: load-arizona-medicare-data
+
+db <- read_csv("medpar.csv",
+               col_types = "fiiiiiiiii")
+db <- db |>
+  mutate(type = case_when(type1 == 1 ~ "Elective",
+                          type2 == 1 ~ "Urgent",
+                          type3 == 1 ~ "Emergency"),
+         type = factor(type,
+                       levels = c("Elective", "Urgent", "Emergency")))
+```
+
+The response variable is length of stay, `los`, a count of the number of
+days a patient spent in the hospital.
+The following explanatory variables are available:
+
+1. `provnum`: identifier for the medical provider
+1. `hmo`:     does the patient belong to a health maintenance organization (HMO)?
+1. `white`:   does the patient self-identify primarily as a Caucasian?
+1. `type1`:   was the admission to the hospital **elective**?
+1. `type2`:   was the admission to the hospital **urgent**?
+1. `type3`:   was the admission to the hospital **emergency**?
+1. `age`:     the age group of the patient (1 to 9)
+1. `age80`:   patient is older than or equal to 80?
+1. `died`:    did the patient die at the hospital?
+
+```{r}
+#| echo: false
+#| label: compute-los-summary-by-provider
+
+tb <- db |>
+  group_by(provnum) |>
+  summarize(sz = n(),
+            mean.los = mean(los),
+            mean.age = mean(age),
+            count.white = sum(white),
+            count.type1 = sum(type1),
+            count.type2 = sum(type2),
+            count.type3 = sum(type3)) |>
+  arrange(desc(mean.los))
+```
+
+All variables are indicator variables (1/0) except for `provnum` and `age`.
+The data has `r format(nrow(db), big.mark = ",")` observations and
+`r length(unique(db$provnum))` unique medical providers.
+We would like to understand how these explanatory variables could help
+us predict the length of stay for a newly admitted patient.
+
+The response variable is counting the days that a patient spends in the
+hospital, and so perhaps we should use a Poisson distribution for the length of
+stay.
+But the Poisson distribution would not be entirely appropriate because
+length of stay can never be zero.
+What would work is the zero-truncated Poisson distribution defined as
+follows: we say that $N$ is a zero-truncated Poisson random variable
+with parameter $\lambda > 0$ if
+$$
+  \text{Prob}(N = y) = \frac{1}{1 - e^{-\lambda}} 
+     \frac{e^{-\lambda} \lambda^y}{y!} \qquad \text{for } y = 1,2, \dots
+$$
+Thus a zero-truncated Poisson random variable is a rescaled Poisson
+random variable where we have removed the possibility of $N = 0$.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Show that the zero-truncated Poisson distribution is a member of the
+exponential family.
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+To show that a zero-truncated Poisson distribution is a member of the
+exponential family, we have to rewrite the density function in the
+form
+$$
+  a(y, \phi) \exp\left[{\frac{y\theta - \kappa(\theta)}{\phi}}\right],
+$$
+where $\phi$ is a dispersion parameter and $a(y,\phi)$ is a normalizing 
+constant.
+
+The mean of the distribution is given by the first derivative of
+$\kappa(\theta)$, and the variance function is the derivative of the
+mean with respect to $\theta$, that is, $\kappa''(\theta)$.
+
+We can rewrite the density function as follows:
+$$
+  \frac{e^{-\lambda} \lambda^y}{y! (1 - e^{-\lambda})} = 
+  \frac{1}{y!}\frac{\lambda^y}{(e^\lambda - 1)} = 
+  \frac{1}{y!} e^{y \log(\lambda) - \log(e^\lambda - 1)}.
+$$
+Hence, we have $\theta = \log(\lambda)$, 
+$\kappa(\theta) = \log(e^{e^\theta} - 1)$,
+$a(y, \phi) = 1/y!$, and $\phi = 1$.
+
+Therefore, the zero-truncated Poisson distribution is a member
+of the exponential family of distributions. The mean of the 
+distribution is
+$$
+ \kappa'(\theta) = \frac{e^\theta e^{e^\theta}}{e^{e^\theta} - 1} =
+   \frac{\lambda e^\lambda}{e^\lambda - 1} = \mu.
+$$ {#eq-los-mean-in-terms-of-lambda}
+
+In an application, we would have an estimate of what the mean of the
+distribution might be, and so we would like to express the 
+parameter $\lambda$ in terms of the mean $\mu$. 
+Solving the above equation for $\lambda$ in terms of the mean $\mu$ requires the use
+of the Lambert $W$ function (see @sec-appendix-c), and we have that
+$$
+  \lambda = \mu + W_0(-\mu e^{-\mu}),
+$$
+where $W_0$ is the principal branch.
+
+The variance function in terms of the mean $\mu$ is
+$$
+  \kappa''(\theta) = \frac{e^{\theta} e^{e^\theta} \left[e^{e^\theta} - e^\theta - 1 \right]}{\left(e^{e^\theta} - 1 \right)^2} =
+  \frac{\lambda e^\lambda \left[ e^\lambda - \lambda -1 \right]}{\left(e^{\lambda} - 1 \right)^2} = 
+    \mu\left[ 1 + W_0(-\mu e^{-\mu}) \right],
+$$ {#eq-los-zero-truncated-poisso-variance-function}
+where again $W_0$ is the principal branch of the Lambert $W$ function.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Show that the zero-truncated Poisson distribution is a member of the
+exponential family.
+
+:::
+
+::: {.pmmsol}
+
+To show that a zero-truncated Poisson distribution is a member of the
+exponential family, we have to rewrite the density function in the
+form
+$$
+  a(y, \phi) \exp\left[{\frac{y\theta - \kappa(\theta)}{\phi}}\right],
+$$
+where $\phi$ is a dispersion parameter and $a(y,\phi)$ is a normalizing 
+constant.
+
+The mean of the distribution is given by the first derivative of
+$\kappa(\theta)$, and the variance function is the derivative of the
+mean with respect to $\theta$, that is, $\kappa''(\theta)$.
+
+We can rewrite the density function as follows:
+$$
+  \frac{e^{-\lambda} \lambda^y}{y! (1 - e^{-\lambda})} = 
+  \frac{1}{y!}\frac{\lambda^y}{(e^\lambda - 1)} = 
+  \frac{1}{y!} e^{y \log(\lambda) - \log(e^\lambda - 1)}.
+$$
+Hence, we have $\theta = \log(\lambda)$, 
+$\kappa(\theta) = \log(e^{e^\theta} - 1)$,
+$a(y, \phi) = 1/y!$, and $\phi = 1$.
+
+Therefore, the zero-truncated Poisson distribution is a member
+of the exponential family of distributions. The mean of the 
+distribution is
+$$
+ \kappa'(\theta) = \frac{e^\theta e^{e^\theta}}{e^{e^\theta} - 1} =
+   \frac{\lambda e^\lambda}{e^\lambda - 1} = \mu.
+$$ {#eq-los-mean-in-terms-of-lambda}
+
+In an application, we would have an estimate of what the mean of the
+distribution might be, and so we would like to express the 
+parameter $\lambda$ in terms of the mean $\mu$. 
+Solving the above equation for $\lambda$ in terms of the mean $\mu$ requires the use
+of the Lambert $W$ function (see @sec-appendix-c), and we have that
+$$
+  \lambda = \mu + W_0(-\mu e^{-\mu}),
+$$
+where $W_0$ is the principal branch.
+
+The variance function in terms of the mean $\mu$ is
+$$
+  \kappa''(\theta) = \frac{e^{\theta} e^{e^\theta} \left[e^{e^\theta} - e^\theta - 1 \right]}{\left(e^{e^\theta} - 1 \right)^2} =
+  \frac{\lambda e^\lambda \left[ e^\lambda - \lambda -1 \right]}{\left(e^{\lambda} - 1 \right)^2} = 
+    \mu\left[ 1 + W_0(-\mu e^{-\mu}) \right],
+$$ {#eq-los-zero-truncated-poisso-variance-function}
+where again $W_0$ is the principal branch of the Lambert $W$ function.
+
+
+:::
+
+:::
+
+
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Compare the Poisson and zero-truncated Poisson distributions
+with means equal to 1.5, 2.5, and 3.5.
+Based on this information, what would you conclude in terms
+of the usefulness of the zero-truncated Poisson distribution?
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+The Poisson distribution with parameter $\lambda$ has a mean
+equal to $\lambda$.
+But the zero-truncated Poisson distribution with parameter
+$\lambda$ has a mean equal to $\lambda / (1 - e^{-\lambda})$,
+and thus we need to find the appropriate value of $\lambda$
+to give us a zero-truncated Poisson distribution with the
+correct mean; that is, given the mean $\mu$ the correct 
+value of $\lambda$ (see previous exercise) is
+$$
+  \lambda = \mu + W_0(-\mu e^{-\mu}),
+$$
+where $W_0$ is the principal branch of the Lambert $W$ function.
+See @sec-appendix-c for more information on Lambert's function.
+
+@fig-los-zero-truncated-probabilities-comparison-html
+shows the probability mass functions for the Poisson and
+zero-truncated Poisson random variables with means equal to
+1.5, 2.5, and 3.5.
+The solid dots correspond to the Poisson distribution, and the
+open circles are the zero-truncated Poisson.
+
+When the mean is small, the probabilities between the two
+distributions differ significantly.
+But as the mean increases, the probabilities get closer and
+closer together.
+If the mean length of stay is larger than, say, 4 or 5, then using the
+Poisson distribution instead of the zero-truncated Poisson distribution
+would yield nearly identical results.
+
+```{r}
+#| include: false
+#| label: los-zero-truncated-probabilities-example-html
+
+f <- function(mu = 1.5, x = 0:9, zt = FALSE) {
+  lambda <- mu
+  if(zt) {
+    lambda <- mu + pracma::lambertWp(-mu * exp(-mu))
+  }
+  ans <- tibble(x = x,
+                prob = dpois(x, lambda = lambda))
+  if (zt) {
+    
+    ans$prob <- ans$prob / (1 - exp(-lambda))
+    ans <- filter(ans, x > 0)
+  }
+  return(ans)
+}
+```
+
+```{r}
+#| echo: false
+#| label: fig-los-zero-truncated-probabilities-comparison-html
+#| fig-cap: "Poisson and zero-truncated Poisson probabilities for means equal to 1.5, 2.5, and 3.5. As the mean increases, the difference between the Poisson and the zero-truncated Poisson distributions narrows quickly. The closed circles represent the Poisson distribution, and the open circles correspond to the zero-truncated Poisson distribution. Red-colored points correspond to a mean of 1.5, blue corresponds to 2.5, and purple has a mean of 3.5."
+
+ggplot(mapping = aes(x = x,
+                     y = prob)) +
+  geom_line(data = f(1.5), color = "gray") +
+  geom_point(data = f(1.5), color = "red") +
+  geom_line(data = f(1.5, zt = TRUE), color = "gray") +
+  geom_point(data = f(1.5, zt = TRUE), color = "red", pch = 1) +
+  geom_line(data = f(2.5), color = "gray") +
+  geom_point(data = f(2.5), color = "blue") +
+  geom_line(data = f(2.5, zt = TRUE), color = "gray") +
+  geom_point(data = f(2.5, zt = TRUE), color = "blue", pch = 1) +
+  geom_line(data = f(3.5), color = "gray") +
+  geom_point(data = f(3.5), color = "purple") +
+  geom_line(data = f(3.5, zt = TRUE), color = "gray") +
+  geom_point(data = f(3.5, zt = TRUE), color = "purple", pch = 1) +
+  scale_x_continuous(breaks = seq(0, 8, by = 2), 
+                     labels = seq(0, 8, by = 2)) +
+  labs(x = "Random Variable",
+       y = "Probability")
+rm(f)
+```
+
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Compare the Poisson and zero-truncated Poisson distributions
+with means equal to 1.5, 2.5, and 3.5.
+Based on this information, what would you conclude in terms
+of the usefulness of the zero-truncated Poisson distribution?
+
+:::
+
+::: {.pmmsol}
+
+The Poisson distribution with parameter $\lambda$ has a mean
+equal to $\lambda$.
+But the zero-truncated Poisson distribution with parameter
+$\lambda$ has a mean equal to $\lambda / (1 - e^{-\lambda})$,
+and thus we need to find the appropriate value of $\lambda$
+to give us a zero-truncated Poisson distribution with the
+correct mean; that is, given the mean $\mu$ the correct 
+value of $\lambda$ (see previous exercise) is
+$$
+  \lambda = \mu + W_0(-\mu e^{-\mu}),
+$$
+where $W_0$ is the principal branch of the Lambert $W$ function.
+See @sec-appendix-c for more information on Lambert's function.
+
+@fig-los-zero-truncated-probabilities-comparison-pdf
+shows the probability mass functions for the Poisson and
+zero-truncated Poisson random variables with means equal to
+1.5, 2.5, and 3.5.
+The solid dots correspond to the Poisson distribution, and the
+open circles are the zero-truncated Poisson.
+
+When the mean is small, the probabilities between the two
+distributions differ significantly.
+But as the mean increases, the probabilities get closer and
+closer together.
+If the mean length of stay is larger than, say, 4 or 5, then using the
+Poisson distribution instead of the zero-truncated Poisson distribution
+would yield nearly identical results.
+
+```{r}
+#| include: false
+#| label: los-zero-truncated-probabilities-example-pdf
+
+f <- function(mu = 1.5, x = 0:9, zt = FALSE) {
+  lambda <- mu
+  if(zt) {
+    lambda <- mu + pracma::lambertWp(-mu * exp(-mu))
+  }
+  ans <- tibble(x = x,
+                prob = dpois(x, lambda = lambda))
+  if (zt) {
+    
+    ans$prob <- ans$prob / (1 - exp(-lambda))
+    ans <- filter(ans, x > 0)
+  }
+  return(ans)
+}
+```
+
+```{r}
+#| echo: false
+#| label: fig-los-zero-truncated-probabilities-comparison-pdf
+#| fig-cap: "Poisson and zero-truncated Poisson probabilities for means equal to 1.5, 2.5, and 3.5. As the mean increases, the difference between the Poisson and the zero-truncated Poisson distributions narrows quickly. The closed circles represent the Poisson distribution, and the open circles correspond to the zero-truncated Poisson distribution. Red-colored points correspond to a mean of 1.5, blue corresponds to 2.5, and purple has a mean of 3.5."
+
+ggplot(mapping = aes(x = x,
+                     y = prob)) +
+  geom_line(data = f(1.5), color = "gray") +
+  geom_point(data = f(1.5), color = "red") +
+  geom_line(data = f(1.5, zt = TRUE), color = "gray") +
+  geom_point(data = f(1.5, zt = TRUE), color = "red", pch = 1) +
+  geom_line(data = f(2.5), color = "gray") +
+  geom_point(data = f(2.5), color = "blue") +
+  geom_line(data = f(2.5, zt = TRUE), color = "gray") +
+  geom_point(data = f(2.5, zt = TRUE), color = "blue", pch = 1) +
+  geom_line(data = f(3.5), color = "gray") +
+  geom_point(data = f(3.5), color = "purple") +
+  geom_line(data = f(3.5, zt = TRUE), color = "gray") +
+  geom_point(data = f(3.5, zt = TRUE), color = "purple", pch = 1) +
+  scale_x_continuous(breaks = seq(0, 8, by = 2), 
+                     labels = seq(0, 8, by = 2)) +
+  labs(x = "Random Variable",
+       y = "Probability")
+rm(f)
+```
+
+
+
+:::
+
+:::
+
+
+
+### Exploratory Data Analysis
+
+
+On average, we should have about 30 patients per provider, but the data
+shows a lot of variation---we have a provider with a single patient and 
+another with `r max(tb$sz)`.
+The overall mean length of stay in the hospital is equal to 
+`r round(mean(db$los),1)` days.
+@tbl-los-summary-by-provider
+shows the top-five and bottom-five providers in terms of their mean length of stay along
+with the number of patients, their mean age group, how many of them 
+consider themselves Caucasian, and the type of admission to the hospital.
+
+```{r}
+#| echo: false
+#| label: tbl-los-summary-by-provider
+#| tbl-cap: "Top-five and bottom-five providers sorted by mean length of stay in decreasing order. Also showing the number of patients for each provider, their mean age group, the number of patients who consider themselves Caucasian (White), and the number by type of admission to the hospital."
+
+tb[c(1:5, 50:54),] |>
+  kbl(booktabs = TRUE,
+      col.names = c("Provider", "Patients", "Stay", "Age", 
+                    "White", "Elective", "Urgent", "Emergency"),
+      digits = c(0,0,1,1,0,0,0,0),
+      align = rep("r", 8)) |>
+  add_header_above(c(" " = 1, "Number of" = 1, "Mean" = 1, 
+                     "Mean" = 1, "Count" = 1, "Type of Admission" = 3),
+                   line = FALSE,
+                   align = c(rep("r", 5), "c")) |>
+  kable_classic()
+```
+
+
+The length of stay is strongly influenced by the type of admission but
+not the age of the patient.
+@tbl-los-average-los-by-age-group-and-type-of-admission
+displays the average hospital stay by age group and type of admission.
+As we read down the columns, there are no clear upward or downward
+trends---therefore, age group does not seem to be related to the number
+of days a patient stays in the hospital.
+Reading horizontally across, we find that nearly all elective admissions
+have the shortest stays, emergency admissions have the longest stays, and 
+urgent admissions are between.
+Also note that for age group 1, the average length of stay for elective
+admissions is very high at 13.8 days.
+But that high mean value is based on only four
+observations, and thus we should be careful about using these levels as
+base levels in our estimation of models.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Further explore the relationship between `age` and `los`.
+Do not treat age as a numeric variable but do take into account
+the type of admission.
+Does the data have many outliers?
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+The following display shows `age` as a categorical variable and 
+length of stay, `los`, using boxplots for each type of admission.
+Note that most of the outliers are for emergency and urgent admissions.
+
+```{r}
+#| echo: true
+#| label: los-boxplot-age-versus-length-of-stay-html
+
+ggplot(data = db,
+       mapping = aes(x = factor(age),
+                     y = los)) +
+  facet_wrap(~ type) +
+  geom_boxplot() +
+  labs(x = "Age Group",
+       y = "Length of Stay (days)")
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Further explore the relationship between `age` and `los`.
+Do not treat age as a numeric variable but do take into account
+the type of admission.
+Does the data have many outliers?
+
+
+:::
+
+::: {.pmmsol}
+
+The following display shows `age` as a categorical variable and 
+length of stay, `los`, using boxplots for each type of admission.
+Note that most of the outliers are for emergency and urgent admissions.
+
+```{r}
+#| echo: true
+#| label: los-boxplot-age-versus-length-of-stay-pdf
+
+ggplot(data = db,
+       mapping = aes(x = factor(age),
+                     y = los)) +
+  facet_wrap(~ type) +
+  geom_boxplot() +
+  labs(x = "Age Group",
+       y = "Length of Stay (days)")
+```
+
+:::
+
+:::
+
+```{r}
+#| echo: false
+#| label: tbl-los-average-los-by-age-group-and-type-of-admission
+#| tbl-cap: "Average length of stay by age group and type of admission. Note that in nearly all cases elective admissions are the shortest and emergency admissions are the longest. An entry of NA means that there is no data for this combination."
+
+db |>
+  group_by(age, type) |>
+  summarize(mn.los = round(mean(los),1),
+            .groups = "drop") |>
+  pivot_wider(names_from = type,
+              values_from = mn.los) |>
+  kbl(booktabs = TRUE,
+      digits = c(0, 1, 1, 1),
+      col.names = c("Age Group", "Elective", "Urgent", "Emergency")) |>
+  add_header_above(c(" " = 1, "Type of Admission" =  3)) |>
+  kable_classic()
+```
+
+
+### Modeling Length of Stay {#sec-length-of-stay}
+
+Our response variable is length of stay, `los`, a count of the number
+of days a patient remained hospitalized.
+For now we ignore the information supplied by the variable `provnum`
+(medical provider)
+because that variable has a large number of levels,
+`r length(levels(db$provnum))`.
+
+```{r}
+#| include: false
+#| label: los-create-age-as-categorical
+
+db <- db |>
+  mutate(age.cat = factor(age,
+                          levels = c(6, 1:5, 7:9)))
+```
+
+For our first model, we will use the Poisson distribution and include
+`hmo`, `white`, `type`, and `age.cat` as explanatory variables.
+The variable `age.cat` is a categorical version of `age`, and we
+have selected age group 6 as the base level
+because that level has the largest number of observations.
+For type of admission, `type`, we have selected level elective as
+our base for the same reason.
+
+The model fit is summarized below.
+
+```{r}
+#| echo: false
+#| label: los-poisson-model-main-effects
+
+los.pois <- glm(los ~ type + white + hmo + age.cat,
+                data = db,
+                family = poisson(link = "log"))
+summary(los.pois)
+```
+
+Note that it appears that `type`, `white`, and `hmo` are all statistically
+significant variables.
+Many of the estimated coefficients for `age.cat` have a negative sign but 
+do not appear to be significant at the 5% level.
+Relative to age group 6, every other group appears to have either a similar
+length of stay or a shorter one (groups 2 and 8).
+
+```{r}
+#| include: false
+#| label: los-poisson-compute-diagnostics
+
+db2 <- db |>
+  mutate(mu = predict(los.pois, type = "response"),
+         rD = resid(los.pois, type = "deviance"),
+         rQ = qresid(los.pois))
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-los-poisson-diagnostics
+#| fig-cap: "Diagnostic plots for the Poisson model predicting length of stay based on type of admission, self-reported race, age category, and whether the patient is a member of an HMO. The clusters, from left to right in the upper panels, correspond to elective, urgent, and emergency admissions to the hospital."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p <- ggplot(data = db2,
+            mapping = aes(x = mu, y = rD,
+            color = type)) +
+  geom_point(alpha = 0.4) + 
+  labs(x = "Fitted Values",
+       y = "Deviance Residuals") +
+  theme(legend.position = "none")
+q <- ggplot(data = db2,
+            mapping = aes(x = mu, y = abs(rD),
+                          color = type)) +
+  geom_point(alpha = 0.4) + 
+  labs(x = "Fitted Values",
+       y = "|Deviance Residuals|") +
+  theme(legend.position = "none")
+r <- ggplot(data = db2,
+       mapping = aes(sample = rD)) +
+  geom_qq() + geom_qq_line() +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+s <- ggplot(data = db2,
+            mapping = aes(x = rD)) +
+  geom_histogram() +
+  labs(x = "Deviance Residuals",
+       y = "Count")
+(p + q) / (r + s)
+```
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-1
+
+rm(p, q, r, s)
+```
+
+
+This model unfortunately does not fit the data well.
+@fig-los-poisson-diagnostics
+shows several diagnostic plots.
+The deviance residuals should be approximately normally
+distributed.
+Their mean is `r round(mean(db2$rD), 3)`, and their standard
+deviation is `r round(sd(db2$rD), 3)`.
+Clearly we have some very large residuals.
+The QQ plot in the bottom-left panel shows
+that the deviance residuals have much thicker tails
+than the normal distribution, and the bottom-right
+panel shows a nonsymmetrical distribution for the
+deviance residuals.
+Finally, the upper-right panel, which displays the
+absolute value of the deviance residuals against the 
+fitted values, shows an increasing trend whereby
+the variance increases as the fitted values increase.
+
+The clusters of observations seen in the upper panels arise
+because the different types of admission to the hospital
+(elective, urgent, and emergency)
+have little overlap in the response variable.
+We also see a clear decreasing pattern in the upper-left panel.
+The model overpredicts many of the emergency admissions.
+
+Also, if the model fit had been good, we would expect an estimate of the
+dispersion parameter to be close to 1.
+Here both the mean deviance estimate as well as the Pearson estimate of 
+the dispersion parameter are well above 1, indicating overdispersion.
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-2
+
+rm(db2)
+```
+
+
+```{r}
+#| echo: false
+#| label: los-estimates-of-dispersion-parameter
+
+c("Mean Dev. Estimate" = deviance(los.pois) / df.residual(los.pois),
+  "Pearson Estimate" = sum(resid(los.pois, type = "pearson")^2) / 
+    df.residual(los.pois))
+```
+
+
+
+But is the overdispersion real or apparent?
+Apparent overdispersion can arise when our modeling of the data
+is deficient.
+For example, not including an important explanatory variable in
+our model, using the wrong link function, or the presence of 
+outliers might show that the estimate of the dispersion parameter 
+is greater than 1, leading us to think that the data is overdispersed.
+But once we fix our model, the estimate of the dispersion
+parameter falls back close to unity.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Outlier observations violate one of the most important assumptions
+in regression analysis, namely, that all of the observations come 
+from the same data generation process.
+
+Repeat the above analysis, but first remove the largest 5% of 
+observations in terms of length of stay.
+The Pearson estimate of the dispersion parameter should now be
+smaller, but it is still well above 1.
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+Remove the top 5% of observations and fit the Poisson
+model to the new dataset `dta`.
+
+```{r}
+#| echo: true
+#| label: los-remove-top-5-pct-and-refit-model-html
+
+dta <- filter(db, 
+              db$los < quantile(db$los, probs = 0.95))
+los.pois.no <- glm(los ~ type + white + hmo + age.cat,
+                data = dta,
+                family = poisson(link = "log"))
+summary(los.pois.no)
+```
+
+Compute fitted values and deviance residuals, and generate the
+diagnostic plots.
+
+```{r}
+#| include: false
+#| label: los-poisson-compute-diagnostics-no-outliers-html
+
+dta2 <- dta |>
+  mutate(mu = predict(los.pois.no, type = "response"),
+         rD = resid(los.pois.no, type = "deviance"))
+```
+
+```{r}
+#| echo: false
+#| label: los-poisson-diagnostics-no-outliers-html
+#| message: false
+#| warning: false
+
+p <- ggplot(data = dta2,
+            mapping = aes(x = mu, y = rD,
+            color = type)) +
+  geom_point(alpha = 0.4) + 
+  labs(x = "Fitted Values",
+       y = "Deviance Residuals") +
+  theme(legend.position = "none")
+q <- ggplot(data = dta2,
+            mapping = aes(x = mu, y = abs(rD),
+                          color = type)) +
+  geom_point(alpha = 0.4) + 
+  labs(x = "Fitted Values",
+       y = "|Deviance Residuals|") +
+  theme(legend.position = "none")
+r <- ggplot(data = dta2,
+       mapping = aes(sample = rD)) +
+  geom_qq() + geom_qq_line() +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+s <- ggplot(data = dta2,
+            mapping = aes(x = rD)) +
+  geom_histogram() +
+  labs(x = "Deviance Residuals",
+       y = "Count")
+(p + q) / (r + s)
+```
+
+The deviance residuals versus the fitted values (upper-left panel)
+show that many points seem to be on straight lines with a negative slope.
+These "patterns" are an artifact indicating that our response variable is an integer,
+and they arise for count and binomial (with response variable 0 or 1) models.
+For these models, using quantile residuals is recommended
+[@dunnRandomizedQuantileResiduals1996].
+You can calculate quantile residuals for GLMs via
+the function `qresid()`, available in the `statmod` package.
+
+The QQ plot shows that both tails of the deviance residuals are too
+thin in relation to the normal distribution.
+The upper-right panel depicts a funnel-type shape fanning inward
+as the fitted values increase.
+
+The estimates of the dispersion parameter are
+
+```{r}
+#| echo: false
+#| label: los-estimates-of-dispersion-parameter-no-outliers-html
+
+c("Mean Dev. Estimate" = deviance(los.pois.no) / df.residual(los.pois.no),
+  "Pearson Estimate" = sum(resid(los.pois.no, type = "pearson")^2) / 
+    df.residual(los.pois.no))
+```
+
+Both values are much smaller than in our previous model with all the
+observations, but they are still much larger than the theoretical
+value of 1.
+
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-3-html
+
+rm(dta, los.pois.no, dta2, p, q, r, s)
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Outlier observations violate one of the most important assumptions
+in regression analysis, namely, that all of the observations come 
+from the same data generation process.
+
+Repeat the above analysis, but first remove the largest 5% of 
+observations in terms of length of stay.
+The Pearson estimate of the dispersion parameter should now be
+smaller, but it is still well above 1.
+
+:::
+
+::: {.pmmsol}
+
+Remove the top 5% of observations and fit the Poisson
+model to the new dataset `dta`.
+
+```{r}
+#| echo: true
+#| label: los-remove-top-5-pct-and-refit-model-pdf
+
+dta <- filter(db, 
+              db$los < quantile(db$los, probs = 0.95))
+los.pois.no <- glm(los ~ type + white + hmo + age.cat,
+                data = dta,
+                family = poisson(link = "log"))
+summary(los.pois.no)
+```
+
+Compute fitted values and deviance residuals, and generate the
+diagnostic plots.
+
+```{r}
+#| include: false
+#| label: los-poisson-compute-diagnostics-no-outliers-pdf
+
+dta2 <- dta |>
+  mutate(mu = predict(los.pois.no, type = "response"),
+         rD = resid(los.pois.no, type = "deviance"))
+```
+
+```{r}
+#| echo: false
+#| label: los-poisson-diagnostics-no-outliers-pdf
+#| message: false
+#| warning: false
+
+p <- ggplot(data = dta2,
+            mapping = aes(x = mu, y = rD,
+            color = type)) +
+  geom_point(alpha = 0.4) + 
+  labs(x = "Fitted Values",
+       y = "Deviance Residuals") +
+  theme(legend.position = "none")
+q <- ggplot(data = dta2,
+            mapping = aes(x = mu, y = abs(rD),
+                          color = type)) +
+  geom_point(alpha = 0.4) + 
+  labs(x = "Fitted Values",
+       y = "|Deviance Residuals|") +
+  theme(legend.position = "none")
+r <- ggplot(data = dta2,
+       mapping = aes(sample = rD)) +
+  geom_qq() + geom_qq_line() +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+s <- ggplot(data = dta2,
+            mapping = aes(x = rD)) +
+  geom_histogram() +
+  labs(x = "Deviance Residuals",
+       y = "Count")
+(p + q) / (r + s)
+```
+
+The deviance residuals versus the fitted values (upper-left panel)
+show that many points seem to be on straight lines with a negative slope.
+These "patterns" are an artifact indicating that our response variable is an integer,
+and they arise for count and binomial (with response variable 0 or 1) models.
+For these models, using quantile residuals is recommended
+[@dunnRandomizedQuantileResiduals1996].
+You can calculate quantile residuals for GLMs via
+the function `qresid()`, available in the `statmod` package.
+
+The QQ plot shows that both tails of the deviance residuals are too
+thin in relation to the normal distribution.
+The upper-right panel depicts a funnel-type shape fanning inward
+as the fitted values increase.
+
+The estimates of the dispersion parameter are
+
+```{r}
+#| echo: false
+#| label: los-estimates-of-dispersion-parameter-no-outliers-pdf
+
+c("Mean Dev. Estimate" = deviance(los.pois.no) / df.residual(los.pois.no),
+  "Pearson Estimate" = sum(resid(los.pois.no, type = "pearson")^2) / 
+    df.residual(los.pois.no))
+```
+
+Both values are much smaller than in our previous model with all the
+observations, but they are still much larger than the theoretical
+value of 1.
+
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-3-pdf
+
+rm(dta, los.pois.no, dta2, p, q, r, s)
+```
+
+:::
+
+:::
+
+The following exercise shows how apparent overdispersion can arise
+if we do not have the appropriate explanatory variables.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Generate a dataset with a response variable that is Poisson
+distributed and a categorical variable with four levels.
+The response variable, `skip`, is the number of classes that students at
+a university skip in one semester.
+The categorical variable, `class`, classifies students by how many years
+they have already been at the university: 0 (freshman), 
+1 (sophomore), 2 (junior), or 3 (senior).
+
+Each group should have the same number of students, and the
+mean number of classes skipped for freshmen is 4.5, sophomores is
+1.5, juniors is 1.5, and seniors is 6.5.
+
+1. Fit a Poisson GLM to the data ignoring the
+`class` variable and compute the Pearson estimate of the dispersion
+parameter.
+Is overdispersion present in this dataset?
+1. Fit a Poisson GLM including the `class`
+variable and recompute the Pearson estimate of the dispersion parameter.
+Does the result indicate that the data is overdispersed?
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+Set a seed for the random number generator so we can reproduce our 
+computations and generate our data based on four classes, each
+Poisson distributed with a different mean.
+
+```{r}
+#| echo: true
+#| label: los-generate-new-dataset-html
+
+set.seed(12853)
+N <- 100
+dta <- tibble(skip = c(rpois(N, lambda = 4.5),
+                       rpois(N, lambda = 2.5),
+                       rpois(N, lambda = 1.5),
+                       rpois(N, lambda = 6.5)),
+              class = c(rep("freshman", N),
+                        rep("sophomore", N),
+                        rep("junior", N),
+                        rep("senior", N)))
+```
+
+Ignoring the class standing of a student, we fit a Poisson model
+across all observations and compute the Pearson estimate 
+$\hat{\phi}$ of the dispersion parameter.
+
+```{r}
+#| echo: true
+#| label: los-fit-null-glm-model-html
+
+m1 <- glm(skip ~ 1,
+          data = dta,
+          family = poisson(link = "log"))
+(phi.hat <- sum(resid(m1, type = "pearson")^2) / df.residual(m1))
+```
+
+The value of $\hat{\phi}$ is well above its theoretical value of 1,
+indicating that the data is overdispersed.
+Next, we include the explanatory variable `class` and recompute
+the Pearson estimate of the dispersion parameter, yielding a value
+that is much closer to 1.
+
+```{r}
+#| echo: true
+#| label: los-fit-glm-model-with-class-predictor-html
+
+m2 <- glm(skip ~ class,
+          data = dta,
+          family = poisson(link = "log"))
+(phi.hat <- sum(resid(m2, type = "pearson")^2) / df.residual(m2))
+```
+
+Therefore, we conclude that the overdispersion we saw earlier
+is apparent.
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-4-html
+
+rm(N, dta, m1, m2, phi.hat)
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Generate a dataset with a response variable that is Poisson
+distributed and a categorical variable with four levels.
+The response variable, `skip`, is the number of classes that students at
+a university skip in one semester.
+The categorical variable, `class`, classifies students by how many years
+they have already been at the university: 0 (freshman), 
+1 (sophomore), 2 (junior), or 3 (senior).
+
+Each group should have the same number of students, and the
+mean number of classes skipped for freshmen is 4.5, sophomores is
+1.5, juniors is 1.5, and seniors is 6.5.
+
+1. Fit a Poisson GLM to the data ignoring the
+`class` variable and compute the Pearson estimate of the dispersion
+parameter.
+Is overdispersion present in this dataset?
+1. Fit a Poisson GLM including the `class`
+variable and recompute the Pearson estimate of the dispersion parameter.
+Does the result indicate that the data is overdispersed?
+
+
+:::
+
+::: {.pmmsol}
+
+Set a seed for the random number generator so we can reproduce our 
+computations and generate our data based on four classes, each
+Poisson distributed with a different mean.
+
+```{r}
+#| echo: true
+#| label: los-generate-new-dataset-pdf
+
+set.seed(12853)
+N <- 100
+dta <- tibble(skip = c(rpois(N, lambda = 4.5),
+                       rpois(N, lambda = 2.5),
+                       rpois(N, lambda = 1.5),
+                       rpois(N, lambda = 6.5)),
+              class = c(rep("freshman", N),
+                        rep("sophomore", N),
+                        rep("junior", N),
+                        rep("senior", N)))
+```
+
+Ignoring the class standing of a student, we fit a Poisson model
+across all observations and compute the Pearson estimate 
+$\hat{\phi}$ of the dispersion parameter.
+
+```{r}
+#| echo: true
+#| label: los-fit-null-glm-model-pdf
+
+m1 <- glm(skip ~ 1,
+          data = dta,
+          family = poisson(link = "log"))
+(phi.hat <- sum(resid(m1, type = "pearson")^2) / df.residual(m1))
+```
+
+The value of $\hat{\phi}$ is well above its theoretical value of 1,
+indicating that the data is overdispersed.
+Next, we include the explanatory variable `class` and recompute
+the Pearson estimate of the dispersion parameter, yielding a value
+that is much closer to 1.
+
+```{r}
+#| echo: true
+#| label: los-fit-glm-model-with-class-predictor-pdf
+
+m2 <- glm(skip ~ class,
+          data = dta,
+          family = poisson(link = "log"))
+(phi.hat <- sum(resid(m2, type = "pearson")^2) / df.residual(m2))
+```
+
+Therefore, we conclude that the overdispersion we saw earlier
+is apparent.
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-4-pdf
+
+rm(N, dta, m1, m2, phi.hat)
+```
+
+:::
+
+:::
+
+
+
+
+As a consequence of the overdispersion, the estimated standard errors
+for our coefficients are too narrow, and this might lead us to 
+infer that some explanatory variables are significant when in fact they
+are not.
+One may compensate for the overdispersion by inflating the standard
+error with a multiplicative factor equal to the square root of the
+estimated dispersion parameter.
+For our data this factor would be equal to approximately 2.5, and 
+applying it to our fitted Poisson model would render all of the
+estimated coefficients for `age.cat` not significant at the 5% level
+as well as the indicator for the health maintenance organization, `hmo`.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Adjust the standard errors by fitting a quasi-Poisson model, and verify
+the claims made in the previous paragraph.
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+
+```{r}
+#| echo: true
+#| label: los-quasi-poisson-model-html
+
+los.qpoi <- glm(los ~ type + white + hmo + age.cat,
+                data = db,
+                family = quasipoisson(link = "log"))
+summary(los.qpoi)
+```
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-5-html
+
+rm(los.qpoi)
+```
+
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Adjust the standard errors by fitting a quasi-Poisson model, and verify
+the claims made in the previous paragraph.
+
+:::
+
+::: {.pmmsol}
+
+```{r}
+#| echo: true
+#| label: los-quasi-poisson-model-pdf
+
+los.qpoi <- glm(los ~ type + white + hmo + age.cat,
+                data = db,
+                family = quasipoisson(link = "log"))
+summary(los.qpoi)
+```
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-5-pdf
+
+rm(los.qpoi)
+```
+
+:::
+
+:::
+
+
+Real overdispersion can also arise because the observations
+in our data are not independent of each other.
+That is, there are clusters of observations that are
+similar to each other and thus would violate the
+assumption that they are sampled independently.
+In our current application, patients belonging to a
+medical provider might have other (unobserved) characteristics 
+in common, creating a cluster that contributes
+to the overdispersion.
+
+There are `r length(unique(db$provnum))` unique medical
+providers in the dataset,
+many of them
+(`r length(table(db$provnum)[table(db$provnum) < 5])`)
+with fewer than five data points each.
+Hence, estimating a Poisson model with `provnum` as 
+an explanatory variable may yield estimated
+coefficients for the medical providers that are
+extreme because they are based on a small number of
+observations.
+Estimating a Poisson GLM with 
+`provnum` as an explanatory variable yields the
+following summary:
+
+```{r}
+#| echo: false
+#| label: los-poisson-model-with-provnum-fixed-effects
+
+los.pois.provnum <- glm(los ~ type + white + hmo + age.cat + provnum,
+                        data = db,
+                        family = poisson(link = "log"))
+(sm <- summary(los.pois.provnum))
+```
+
+Previously, in
+@tbl-los-summary-by-provider,
+we displayed the top-five and bottom-five medical providers
+by the average length of stay of their patients.
+Provider 30068 has the lowest average length of stay,
+only two days, but has only one patient.
+The estimated coefficient for this provider is equal
+to
+`r round(coef(sm)["provnum30068", "Estimate"], 3)` with a standard
+error equal to
+`r round(coef(sm)["provnum30068", "Std. Error"], 3)`.
+This is the lowest estimated coefficient, and it has the highest
+standard error.
+Should we completely trust such an estimate?
+Most likely not.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Which medical provider has the largest estimated coefficient?
+How many patients does this provider have, and what is the average 
+length of stay for these patients?
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+Provider 32003 has the largest estimated coefficient, equal to
+`r round(coef(sm)["provnum32003", "Estimate"], 3)`, with a 
+standard error of
+`r round(coef(sm)["provnum32003", "Std. Error"], 3)`.
+The number of patients for this provider is equal to only
+two.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Which medical provider has the largest estimated coefficient?
+How many patients does this provider have, and what is the average 
+length of stay for these patients?
+
+:::
+
+::: {.pmmsol}
+
+Provider 32003 has the largest estimated coefficient, equal to
+`r round(coef(sm)["provnum32003", "Estimate"], 3)`, with a 
+standard error of
+`r round(coef(sm)["provnum32003", "Std. Error"], 3)`.
+The number of patients for this provider is equal to only
+two.
+
+:::
+
+:::
+
+Since the number of observations for each medical provider
+varies significantly, we may try to address that by applying
+some weights (based on the number of observations by provider)
+to the observations in our dataset.
+Unfortunately, doing a weighted quasi-Poisson regression where
+the weights are proportional to the number of patients for
+each medical provider yields estimated coefficients that
+are close to the unweighted estimates (except for a handful
+of providers).
+
+```{r}
+#| echo: false
+#| label: los-compute-weights-by-provnum
+
+wt <- db |>
+  group_by(provnum) |>
+  summarize(n.obs = n()) |>
+  mutate(n.obs = n.obs / max(n.obs))
+
+db2 <- left_join(db, wt, by = "provnum")
+
+m0 <- glm(los ~ type + white + hmo + age.cat + provnum,
+            data = db2,
+            family = quasipoisson(link = "log"),
+          weights = n.obs)
+(sm0 <- summary(m0))
+```
+
+This approach does not resolve our issue.
+Moreover, these medical providers are not the universe of
+all medical providers.
+They are only a sample from all possible medical providers, and we
+would like to be able to infer something about their population.
+To that end, we fit a GLMM with
+a random intercept varying by provider.
+
+First, we define the model for the mean where we want a log-link,
+fixed effects of `type`, `white`, `hmo`, and `age.cat`, and we want
+to define a random intercept for `provnum`.
+In addition, we fit the GLMM with a Poisson
+distribution, a log-link function for the mean, a random
+effect for medical provider, and a 
+constant dispersion parameter.
+
+```{r}
+#| echo: true
+#| label: los-random-intercept-mixed-model
+
+model.mu <- DHGLMMODELING(Model = "mean",
+                          Link = "log",
+                          LinPred = los ~ type + white + hmo + 
+                            age.cat + (1 | provnum),
+                          RandDist = "gamma")
+
+model.phi <- DHGLMMODELING(Model = "dispersion")
+```
+
+
+
+```{r}
+#| echo: true
+#| label: los-random-intercept-mixed-model-fit
+
+los.re <- dhglmfit(RespDist = "poisson",
+                      DataMain = db,
+                      MeanModel = model.mu,
+                      DispersionModel = model.phi)
+```
+
+The estimated coefficients for our random intercept
+model do not differ significantly from the fixed
+effects estimated in the Poisson GLM.
+The intercept and the coefficient for the emergency
+type of admission are the only ones where the 
+difference is a bit larger.
+
+```{r}
+#| include: false
+#| label: los-gather-coefficients-3-models
+
+tb <- tibble(var = c("Intercept", "Type Urgent", "Type Emergency",
+                     "White", "HMO", "Age Group 1", "Age Group 2",
+                     "Age Group 3", "Age Group 4", "Age Group 5",
+                     "Age Group 7","Age Group 8", "Age Group 9"),
+             los.pois.est = coef(sm)[1:13, 1],
+             los.pois.se = coef(sm)[1:13, 2],
+             los.pois.tstat = los.pois.est / los.pois.se,
+             los.pois.sig = ifelse(abs(los.pois.tstat) > 1.96, "*", " "),
+             los.pois.wt.est = coef(sm0)[1:13, 1],
+             los.pois.wt.se = coef(sm0)[1:13, 2],
+             los.pois.wt.tstat = los.pois.wt.est / los.pois.wt.se,
+             los.pois.wt.sig = ifelse(abs(los.pois.wt.tstat) > 1.96, "*", " "),
+             los.re.est = los.re$beta_coeff[,1],
+             los.re.se = los.re$beta_coeff[,2],
+             los.re.tstat = los.re.est / los.re.se,
+             los.re.sig = ifelse(abs(los.re.tstat) > 1.96, "*", " "))
+```
+
+```{r}
+#| echo: false
+#| label: tbl-los-coefficients-3-models
+#| tbl-cap: "Estimated coefficients and their $t$-values from three models that include `provnum` as an explanatory variable but whose coefficients are not shown. The models are Poisson, weighted quasi-Poisson, and Poisson with random intercepts."
+
+tb |>
+  select(var, 
+         los.pois.est, los.pois.tstat, los.pois.sig,
+         los.pois.wt.est, los.pois.wt.tstat, los.pois.wt.sig,
+         los.re.est, los.re.tstat, los.re.sig) |>
+  kbl(booktabs = TRUE,
+      col.names = c("Variable", rep(c("Est.", "t-stat", " "), 3)),
+      digits = c(0, rep(c(3, 3, 0), 3))) |>
+  add_header_above(c(" " = 1, "Poisson" = 3, 
+                     "Wtd. quasi-Poisson" = 3, 
+                     "Random Intercepts" = 3)) |>
+  kable_classic() |>
+  kable_styling(latex_options = "scale_down")
+```
+
+
+@tbl-los-coefficients-3-models
+shows the estimated coefficients and their 
+$t$-statistics for the Poisson, weighted Poisson,
+and the Poisson model with random intercepts.
+In all three models the type of admission to the 
+hospital is significant.
+Note that in all three models urgent admissions have
+a longer average length of stay compared with elective
+admissions.
+But even though emergency admissions also have a positive
+coefficient, the size is smaller than for urgent admissions,
+which we might feel goes against intuition.
+Moreover, for the Poisson and weighted quasi-Poisson models this
+coefficient is not statistically significant, but it is for the
+random intercepts model.
+
+
+From these coefficients and their standard errors
+we can see that the type of admission is important,
+but the size of these coefficients may not be
+intuitive.
+Both urgent and emergency admissions have positive
+coefficients, indicating that these patients will,
+on average, stay longer in the hospital compared
+with elective admissions.
+But the coefficient for urgent admission is 
+much bigger than that for emergency admission.
+We might expect emergency admission patients to
+be in worse health compared with urgent admissions
+and thus stay longer in the hospital.
+
+The self-identified indicator of race, `white`,
+is not significant, but the indicator of membership
+in a health maintenance organization, `hmo`, is
+significant with a negative coefficient, suggesting
+that HMO patients' length of stay is about 10%
+shorter than that of non-HMO patients.
+Some of the age group coefficients are not 
+statistically significant while others are, and
+the coefficients do not suggest a linear relationship
+between increasing age and length of stay.
+Note that the youngest age group has a positive
+coefficient that is statistically significant.
+This suggests that young patients tend to stay
+longer (about 25% longer) at the hospital compared
+with patients in age group 6.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Perhaps the reason younger patients stay in the hospital longer
+than patients in age group 6 is because older patients are more likely
+to die in the hospital.
+
+One of the variables in our dataset, `died`, tells us whether
+the patient died at the hospital.
+We cannot use that variable to predict the length of stay, but we can
+check whether our intuition that patients dying in the hospital tend to be
+the older patients is correct.
+
+Based on the data, compute the empirical probability of dying at the
+hospital split by age group.
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+The variable `dead` is an indicator variable where a 1 means the 
+patient died at the hospital, and otherwise it is zero.
+To compute the probability of dying, we need to group our data by age
+and compute the mean value of `died` for each group.
+It's important to also know how many patients are in each group.
+
+
+```{r}
+#| echo: true
+#| label: los-compute-probability-of-dying-in-hospital-html
+
+db |> 
+  group_by(age.cat) |>
+  summarize(n.dead = sum(died),
+            n.patients = n(),
+            prob.death = mean(died)) |>
+  arrange(levels(age.cat))
+```
+
+Note that as age increases, the probability of dying also increases, except
+for age group 9, where it drops.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Perhaps the reason younger patients stay in the hospital longer
+than patients in age group 6 is because older patients are more likely
+to die in the hospital.
+
+One of the variables in our dataset, `died`, tells us whether
+the patient died at the hospital.
+We cannot use that variable to predict the length of stay, but we can
+check whether our intuition that patients dying in the hospital tend to be
+the older patients is correct.
+
+Based on the data, compute the empirical probability of dying at the
+hospital split by age group.
+
+:::
+
+::: {.pmmsol}
+
+The variable `dead` is an indicator variable where a 1 means the 
+patient died at the hospital, and otherwise it is zero.
+To compute the probability of dying, we need to group our data by age
+and compute the mean value of `died` for each group.
+It's important to also know how many patients are in each group.
+
+
+```{r}
+#| echo: true
+#| label: los-compute-probability-of-dying-in-hospital-pdf
+
+db |> 
+  group_by(age.cat) |>
+  summarize(n.dead = sum(died),
+            n.patients = n(),
+            prob.death = mean(died)) |>
+  arrange(levels(age.cat))
+```
+
+Note that as age increases, the probability of dying also increases, except
+for age group 9, where it drops.
+
+:::
+
+:::
+
+```{r}
+#| include: false
+#| label: los-compute-random-intercept-fv-and-studentized-residuals
+
+db2 <- db |>
+  mutate(mu = los.re[7][[1]],
+         SR = los.re[1][[1]])
+```
+
+@fig-los-diagnostic-plots-random-intercept-model
+displays some of the standard diagnostic plots for
+our random intercept model.
+The panel on the upper left shows the fitted values
+versus the studentized residuals.
+The fitted values are on the scale of the linear
+predictor (as opposed to being on the scale of
+the response).
+There is a cluster of
+`r sum(db2$mu > 3 & db2$mu < 3.5)`
+claims with a fitted
+value between 3 and 3.5.
+These claims come from 
+three
+medical providers, and nearly all of them are
+emergency admissions, with a few of them being urgent admissions.
+None of the patients belong to an HMO.
+Note that the studentized residuals for these observations
+have both positive and negative values.
+Hence, our current model both underpredicts as well as
+overpredicts these patients.
+
+The panel on the upper right shows the absolute
+value of the studentized residuals against the 
+fitted values.
+There is a general upward trend mainly driven
+by the observations with fitted values in excess 
+of 3.
+
+The panel on the lower left displays a QQ plot showing
+that the studentized residuals have a thicker right-hand
+tail than the normal distribution.
+And the lower-right panel shows that the distribution
+of the residuals is skewed to the right, in agreement with the
+QQ plot.
+
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-los-diagnostic-plots-random-intercept-model
+#| fig-cap: "Diagnostic plots for the length of stay random intercept model by medical provider."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p1 <- ggplot(data = db2,
+             mapping = aes(x = mu,
+                           y = SR)) +
+  geom_point(alpha = 0.3) + geom_smooth(se = FALSE) +
+  labs(x = "Fitted Values (lin. pred. scale)",
+       y = "Studentized Residuals")
+p2 <- ggplot(data = db2,
+             mapping = aes(x = mu,
+                           y = abs(SR))) +
+  geom_point(alpha = 0.3) + geom_smooth(se = FALSE) +
+  labs(x = "Fitted Values (lin. pred. scale)",
+       y = "|Studentized Residuals|")
+p3 <- ggplot(data = db2,
+             mapping = aes(sample = SR)) +
+  geom_qq() + geom_qq_line() +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+p4 <- ggplot(data = db2,
+             mapping = aes(x = SR)) +
+  geom_histogram() +
+  labs(x = "Studentized Residuals",
+       y = "Frequency")
+(p1 + p2) / (p3 + p4)
+```
+
+```{r}
+#| include: false
+#| label: los-clean-up-env-6
+
+rm(db2, p1, p2, p3, p4)
+```
+
+
+
+
+@fig-los-random-effects-density-and-points
+shows the estimated density function for the random
+effects along with the individual estimates for each 
+medical provider.
+
+```{r}
+#| include: false
+#| label: compute-los-random-effects-density-and-points
+
+sigma <- exp(los.re$lambda_coeff[1,1])
+alpha <- 1/sigma
+dg <- tibble(x = as.vector(exp(los.re$v_h)),
+             y = runif(length(x), min = 0, max = 0.02))
+dh <- tibble(x = seq(0.01, 3.3, length = 500),
+                     y = dgamma(x, shape = alpha, scale = sigma))
+rm(sigma, alpha)
+```
+
+```{r}
+#| echo: false
+#| label: fig-los-random-effects-density-and-points
+#| fig-cap: "The estimated density function for the intercept random effects along with the estimated medical provider random effects."
+
+ggplot(data = dh,
+       mapping = aes(x = x,
+                     y = y)) +
+  geom_line() +
+  geom_point(data = dg,
+             mapping = aes(x = x, y = y),
+             alpha = 0.2) +
+  labs(x = "Unobserved Gamma Random Variable",
+       y = "Density")
+rm(dg, dh)
+```
+
+
+
+```{r}
+#| include: false
+
+rm(list = ls())
+```
+
+
+
+## Swedish Bus Insurance
+
+In this section we use a bus insurance example from
+Section 4.5 of @ohlssonNonlifeInsurancePricing2010.
+The data comes from the former Swedish insurance company
+Wasa for the years 1990 to 1998. It concerns insuring
+transportation companies and can be accessed from
+Ohlsson and Johansson's [book](www.math.su.se/GLMbook).
+Each company owns one or more buses that are insured for
+shorter or longer periods of time.
+At that time, the pricing scheme was rather simple, based on geographic
+zone and the age class of the bus.
+
+```{r}
+#| include: false
+#| label: load-bus-data
+
+bus <- read_csv("bus-case.csv",
+                col_types = "fffnnnn")
+```
+
+The variables available and their descriptions, taken
+from @ohlssonNonlifeInsurancePricing2010, are as follows.
+We use an English abbreviation first and
+list the original Swedish acronym in parentheses:
+
+1. `zone` (`ZON`): geographic subdivision of Sweden into seven zones,
+based on parishes and numbered 1 through 7.
+1. `bus.age` (`BUSSALD`): the age class of the bus, in the span 0 to 4.
+1. `co.id` (`KUNDNR`): an ID for the company, recoded here for confidentiality
+reasons.
+1. `no.obs` (`ANTAVT`): number of observations for the company in a given
+tariff cell based on the zone and age class. There may be more 
+than one observation per bus, since each renewal is counted
+as a new observation.
+1. `dur` (`DUR`): duration measured in days and aggregated over all
+observations in the tariff cell.
+1. `clm.cnt` (`ANTSKAD`): the corresponding number of claims.
+1. `tot.cost` (`SKADKOST`): the corresponding total claim cost
+in Swedish kronor (unadjusted for inflation).
+
+The variable `dur` is the amount of time a policy is in force, and thus
+we may use it as a measure of exposure.
+The premium is based on a *bus-year* unit of exposure, and the premium
+for a company would be the sum across all buses in its fleet.
+
+### Exploratory Data Analysis
+
+The dataset has 
+`r format(nrow(bus), big.mark = ",")` observations and
+seven variables.
+The variables geographic zone, `zone`; age class of the bus, `bus.age`;
+and company identification, `co.id`, are categorical, and the 
+remaining variables---number of observations, `no.obs`; duration (or
+exposure), `dur`; claim counts, `clm.cnt`; and total claim cost, 
+`tot.cost`---are numeric.
+
+There are `r length(unique(bus$co.id))` unique company IDs in the
+dataset.
+Some companies have a large amount of exposure while others have 
+very little, so using this categorical variable when estimating
+frequency or severity at the level of a single company would be 
+problematic.
+
+@tbl-bus-assemble-numeric-variables-summary
+displays summary statistics for the numeric variables.
+Note that the number of claims, `clm.cnt`, ranges from zero to 402, but
+the 75th percentile is just one claim.
+Hence, we suspect that something is not quite right with the number
+of claims for one or more companies.
+Similarly, the total claim cost has some negative entries, and we can see
+that only 616 records have a non-missing entry.
+The missing entries correspond to having zero claim counts.
+
+```{r}
+#| include: false
+#| label: compute-bus-numerical-variables-summary
+
+f <- function(data, variable) {
+  ans <- data |>
+    summarize(var = as_label(enquo(variable)),
+              n = sum(!is.na({{variable}})),
+              mn = mean({{variable}}, na.rm = TRUE),
+              sd = sd({{variable}}, na.rm = TRUE),
+              p25 = quantile({{variable}}, probs = 0.25, na.rm = TRUE),
+              p50 = quantile({{variable}}, probs = 0.50, na.rm = TRUE),
+              p75 = quantile({{variable}}, probs = 0.75, na.rm = TRUE),
+              min = min({{variable}}, na.rm = TRUE),
+              max = max({{variable}}, na.rm = TRUE))
+  return(ans)
+}
+
+tb <- bind_rows(f(bus, no.obs),
+                f(bus, dur),
+                f(bus, clm.cnt),
+                f(bus, tot.cost))
+rm(f)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-bus-assemble-numeric-variables-summary
+#| tbl-cap: "Summary statistics for the numeric variables in the bus dataset. Variable `no.obs` is the number of observations in a particular tariff cell. Note that each renewal counts as one observation. Duration, `dur`, is measured in days. The variable `clm.cnt` is the number of claims, and `tot.cost` is the total loss cost."
+
+kbl(tb,
+    booktabs = TRUE,
+    digits = c(0,0,0,0,0,0,0,0,0),
+    col.names = c("Variable", "Count", "Mean", "Dev.", 
+                  "25", "50", "75", "Min", "Max"),
+    align = "lrrrrrrrr",
+    format.args = list(big.mark = ","), nsmall = 1) |>
+  add_header_above(c(" " = 1, " " = 1, " " = 1, "Std." = 1, "Percentiles" = 3,
+                     " " = 1, " " = 1),
+                   line = FALSE) |>
+  kable_classic()
+rm(tb)
+```
+
+Regarding the negative entries for total loss cost, they arise from
+`r sum(bus$tot.cost < 0, na.rm = TRUE)`
+rows of data.
+We do not know why those entries have negative loss costs, and we
+will remove them from our analysis.
+Also, the top-10 claim counts are
+
+```{r}
+#| include: false
+#| label: bus-remove-negative-tot-cost-rows
+
+idx <- pull(bus, tot.cost) >= 0
+idx[is.na(idx)] <- TRUE
+db <- bus[idx,]
+rm(idx)
+```
+
+```{r}
+#| echo: false
+#| label: compute-bus-top-ten-claims
+
+sort(pull(db, clm.cnt), decreasing = TRUE)[1:10]
+```
+
+The two largest, 402 and 377, come from company 145.
+We suspect that these entries are erroneous, and because we cannot go back
+to the source systems or other sources of information to correct them, we will
+delete company 145 from our analysis.
+This will remove a total of 
+nine
+rows of data.
+
+```{r}
+#| include: false
+#| label: remove-company-145
+
+db <- db |>
+  filter(co.id != "145")
+```
+
+In @fig-bus-histograms-numeric-variables we have the histograms of our
+four numeric variables.
+Note that all four are highly skewed to the right, and to
+enhance each of the displays we have omitted some large observations.
+
+```{r}
+#| echo: false
+#| warning: false
+#| label: fig-bus-histograms-numeric-variables
+#| fig-cap: "Histograms of the numeric variables in the bus dataset. Note that all four are heavily skewed to the right, and to enhance the display we do not show all data points. For the number of bus observations, 30 observations greater than 100 are not shown. For duration, 26 observations greater than 20,000 are not displayed. Seven claim counts greater than 25 are not shown, and 23 observations for total loss cost greater than 300,000 are also not shown."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p1 <- ggplot(data = db,
+       mapping = aes(x = no.obs)) +
+  geom_histogram(bins = 50) +
+  labs(x = "Number of Bus Observations",
+       y = "Count") +
+  coord_cartesian(xlim = c(0,100))
+
+p2 <- ggplot(data = db,
+       mapping = aes(x = dur)) +
+  geom_histogram(bins = 50) +
+  labs(x = "Duration (in days)",
+       y = "Count") +
+  scale_x_continuous(breaks = c(0, 5000, 10000, 15000, 20000),
+                     labels = c("0", "5K", "10K", "15K", "20K")) +
+  coord_cartesian(xlim = c(0,20000))
+
+p3 <- ggplot(data = db,
+       mapping = aes(x = clm.cnt)) +
+  geom_histogram(bins = 50) +
+  labs(x = "Number of Claims",
+       y = "Count") +
+  coord_cartesian(xlim = c(0,25))
+
+p4 <- ggplot(data = db,
+       mapping = aes(x = tot.cost)) +
+  geom_histogram(bins = 50) +
+  labs(x = "Total Loss Cost",
+       y = "Count") +
+  scale_x_continuous(breaks = c(0, 100000, 200000, 300000),
+                     labels = c("0", "100K", "200K", "300K")) +
+  coord_cartesian(xlim = c(0, 300000))
+
+(p1 + p2) / (p3 + p4)
+rm(p1, p2, p3, p4)
+```
+
+In the 1990s, the rating plan might have been relatively simple---perhaps
+it would have used only two rating factors: zone and age class.
+Using these two variables,
+@tbl-bus-zone-age-empirical-frequency
+shows the empirical frequency (per year of exposure) for each of the
+35 $(7 \times 5)$ rating cells in the plan.
+There is considerable variation in the empirical frequencies, and thus
+we can use `zone` and `bus.age` as part of a rating plan.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Summarize the number of claims in the bus data by `zone` and `bus.age`.
+How many cells have a small number of claims, say, fewer than five?
+
+You can repeat the exercise with exposure.
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+We summarize the data as follows:
+
+```{r}
+#| echo: true
+#| label: compute-bus-summary-of-claim-counts-by-zone-and-bus-age-html
+
+db |> 
+  group_by(zone, bus.age) |>
+  summarize(clm.cnt = sum(clm.cnt),
+            .groups = "drop") |>
+  pivot_wider(names_from = bus.age,
+              values_from = clm.cnt)
+```
+
+Note that most of the cells in zone 7 and zone 5 have very few counts.
+All other cells have many more claim counts.
+In particular, buses in age category 4 have the most claims, and 
+of the zones, zone 4 has the most claims.
+
+Looking at exposure, we have
+
+```{r}
+#| echo: true
+#| label: bus-summary-exposure-by-bus-age-html
+
+db |> 
+  group_by(zone, bus.age) |>
+  summarize(expo = sum(dur),
+            .groups = "drop") |>
+  pivot_wider(names_from = bus.age,
+              values_from = expo)
+```
+
+Again, zone 4 and age category 4 have the most exposure.
+Zones 5 and 7 have much smaller exposures.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Summarize the number of claims in the bus data by `zone` and `bus.age`.
+How many cells have a small number of claims, say, fewer than five?
+
+You can repeat the exercise with exposure.
+
+:::
+
+::: {.pmmsol}
+
+We summarize the data as follows:
+
+```{r}
+#| echo: true
+#| label: compute-bus-summary-of-claim-counts-by-zone-and-bus-age-pdf
+
+db |> 
+  group_by(zone, bus.age) |>
+  summarize(clm.cnt = sum(clm.cnt),
+            .groups = "drop") |>
+  pivot_wider(names_from = bus.age,
+              values_from = clm.cnt)
+```
+
+Note that most of the cells in zone 7 and zone 5 have very few counts.
+All other cells have many more claim counts.
+In particular, buses in age category 4 have the most claims, and 
+of the zones, zone 4 has the most claims.
+
+Looking at exposure, we have
+
+```{r}
+#| echo: true
+#| label: bus-summary-exposure-by-bus-age-pdf
+
+db |> 
+  group_by(zone, bus.age) |>
+  summarize(expo = sum(dur),
+            .groups = "drop") |>
+  pivot_wider(names_from = bus.age,
+              values_from = expo)
+```
+
+Again, zone 4 and age category 4 have the most exposure.
+Zones 5 and 7 have much smaller exposures.
+
+:::
+
+:::
+
+Because both `zone` and `bus.age` have few levels, we can reliably
+estimate the frequency for most cells, but within each cell
+we may still have many companies whose experiences are not similar 
+to each other.
+Hence, we would like to include a company identifier, `co.id`, 
+into the rating plan.
+Unfortunately, the company identifier has more than 600 unique entries.
+Hence, adding it as a regular classification variable would give
+us a rating plan with $7 \times 5 \times 660 = 23{,}100$ individual
+cells.
+Because our data only has around 1,500 observations, most of the cells
+would be empty.
+We cannot go in this direction.
+
+What we can do is bring to bear the tools of credibility and mixed-effects
+models to help us incorporate the information we have regarding
+the experience of each company.
+
+
+### Modeling Frequency
+
+Let us start with modeling frequency of claims by first looking at the 
+empirical data we have.
+The overall *yearly frequency*, without regard to any classification variables,
+is equal to
+`r round(sum(db$clm.cnt) / sum(db$dur) * 365, 3)`.
+If we cross-classify our data by geographical zone and bus
+age category, then the *yearly frequency* for each combination is displayed in
+@tbl-bus-zone-age-empirical-frequency.
+
+```{r}
+#| include: false
+#| label: compute-bus-empirical-frequency
+
+tb <- db |>
+  group_by(zone, bus.age) |>
+  summarize(sz = n(),
+            dur.yrs = sum(dur),
+            clm.cnt = sum(clm.cnt),
+            fq = clm.cnt / dur.yrs * 365,
+            .groups = "drop")
+tbl <- tb |>
+  select(zone, bus.age, fq) |>
+  pivot_wider(names_from = "bus.age",
+              values_from = fq)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-bus-zone-age-empirical-frequency
+#| tbl-cap: "Empirical frequency (per year of exposure) for the bus dataset by geographic zone and age class of the bus."
+#| tbl-pos: "!b"
+
+kbl(tbl,
+    booktabs = TRUE,
+    col.names = c("Zone", "0", "1", "2", "3", "4"),
+    digits = c(0, 3, 3, 3, 3, 3),
+    align = "cccccc") |>
+  add_header_above(c(" " = 1, "Bus Age Class" =  5)) |>
+  kable_classic()
+```
+
+Note that zone 1 and bus age category 0 has a very high empirical 
+yearly frequency of 0.726.
+Looking at the data for this cell, along with the individual companies' annual frequency,
+given in
+@tbl-bus-zone-1-age-0-frequency-by-record,
+we can see that the experience is quite heterogeneous.
+We have companies with a small amount of exposure (356 and 460 days) along
+with companies with more exposure (2,191 and 1,949 days).
+
+
+```{r}
+#| echo: false
+#| label: tbl-bus-zone-1-age-0-frequency-by-record
+#| tbl-cap: "Observations available for zone 1 and bus age category 0 along with the empirical annual frequency for each company. The overall annual frequency for this cell is equal to 0.726."
+
+db |>
+  select(zone, bus.age, co.id, dur, clm.cnt) |>
+  filter(zone == "1",
+         bus.age == "0") |>
+  mutate(freq = clm.cnt / dur * 365) |>
+  arrange(desc(freq), dur) |>
+  kbl(booktabs = TRUE,
+      col.names = c("Zone", "Bus Age", "Company", "Duration", 
+                    "Claim Count", "Frequency"),
+      digits = c(0,0,0,0,0,3),
+      align = "ccrrrr",
+      format.args = list(big.mark = ","), nsmall = 1) |>
+  kable_classic()
+```
+
+
+We can fit a GLM to geographic zone and bus age,
+ignoring company for the moment, to get an initial sense of how we 
+might model frequency.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+# Exercise
+
+Fit a Poisson model to frequency of claims using `zone` and `bus.age`
+as classification variables and a log-link function.
+Does the model fit the data well?
+
+:::
+
+::: {.callout-note collapse=true}
+# Solution
+
+The Poisson model can be fitted via
+
+```{r}
+#| echo: true
+#| label: bus-frequency-model-zone-and-bus-age-html
+
+fq.poi <- glm(clm.cnt ~ zone + bus.age,
+              data = db,
+              family = poisson(link = "log"),
+              offset = log(dur))
+summary(fq.poi)
+```
+
+The mean deviance estimate of the dispersion parameter
+$\phi$ is equal to 
+
+```{r}
+#| echo: false
+#| label: bus-compute-mean-deviance-dispersion-parameter-html
+
+round(deviance(fq.poi) / df.residual(fq.poi), 3)
+```
+
+which is clearly larger than the theoretical value of
+$\phi = 1$, indicating that the data may be overdispersed
+and the Poisson model does not fit well.
+
+The Pearson estimate of the dispersion parameter yields a
+value of
+`r round(sum(resid(fq.poi, type = "pearson")^2) / df.residual(fq.poi), 3)` 
+and thus a similar conclusion.
+
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Fit a Poisson model to frequency of claims using `zone` and `bus.age`
+as classification variables and a log-link function.
+Does the model fit the data well?
+
+:::
+
+::: {.pmmsol}
+
+The Poisson model can be fitted via
+
+```{r}
+#| echo: true
+#| label: bus-frequency-model-zone-and-bus-age-pdf
+
+fq.poi <- glm(clm.cnt ~ zone + bus.age,
+              data = db,
+              family = poisson(link = "log"),
+              offset = log(dur))
+summary(fq.poi)
+```
+
+The mean deviance estimate of the dispersion parameter
+$\phi$ is equal to 
+
+```{r}
+#| echo: false
+#| label: bus-compute-mean-deviance-dispersion-parameter-pdf
+
+round(deviance(fq.poi) / df.residual(fq.poi), 3)
+```
+
+which is clearly larger than the theoretical value of
+$\phi = 1$, indicating that the data is overdispersed
+and the Poisson model does not fit well.
+
+The Pearson estimate of the dispersion parameter yields a
+value of
+`r round(sum(resid(fq.poi, type = "pearson")^2) / df.residual(fq.poi), 3)` 
+and thus a similar conclusion.
+
+:::
+
+:::
+
+
+Since the Poisson model does not fit the data well, we proceed to
+fit a negative binomial model using `zone` and `bus.age`
+as main effects.
+Before fitting the model, we select zone 4 and bus age 4 as the base
+levels for these factors' variables because at these levels they have
+the most exposure.
+
+```{r}
+#| echo: false
+#| label: compute-bus-relevel-zone-and-bus-age
+
+db$zone.f <- fct_relevel(db$zone, "4")
+db$bus.age.f <- fct_relevel(db$bus.age, "4")
+```
+
+```{r}
+#| echo: false
+#| label: compute-bus-nb-model-zone-bus-age
+
+fq.nb <- glm.nb(clm.cnt ~ zone.f + bus.age.f + offset(log(dur)),
+                data = db)
+summary(fq.nb)
+```
+
+Note that the coefficients for `bus.age` are positive and decline steadily 
+as the age category increases.
+All of the `zone` coefficients have large standard errors compared with
+their estimated values except for zone 2.
+Hence, it appears that all zones, except zone 2, have a similar claim 
+frequency as zone 4.
+
+Annual frequency predictions from the negative binomial model
+are displayed in
+@tbl-bus-nb-model-predictions,
+and they do not take into account that the claims experience comes
+from different companies.
+
+```{r}
+#| include: false
+#| label: compute-bus-data-for-predictions
+
+df <- expand_grid(zone.f = factor(1:7),
+                  bus.age.f = factor(0:4))
+df$dur <- 365
+```
+
+```{r}
+#| echo: false
+#| label: tbl-bus-nb-model-predictions
+#| tbl-cap: "Annual mean frequency predictions from the negative binomial model with main effects for geographic zone and bus age class."
+
+df <- df |>
+  mutate(nb.mu = predict(fq.nb, newdata = df, type = "response"))
+df |>
+  select(zone.f, bus.age.f, nb.mu) |>
+  pivot_wider(names_from = bus.age.f,
+              values_from = nb.mu) |>
+  kbl(booktabs = TRUE,
+      col.names = c("Zone", "0", "1", "2", "3", "4"),
+      digits = c(0, 3, 3, 3, 3, 3),
+      align = "cccccc") |>
+  add_header_above(c(" " = 1, "Bus Age Class" = 5)) |>
+  kable_classic()
+```
+
+Next, we incorporate the information available in the
+company identification variable, `co.id`, by adding it 
+as a random effect for the intercept.
+We first define the model structure we want for the mean, and we will
+keep the dispersion parameter fixed; therefore, we are defining a
+GLMM where the response distribution
+is Poisson and the random effect is gamma distributed.
+
+```{r}
+#| echo: true
+#| label: define-bus-glmm-zone-bus-age-model
+
+model.mu <- DHGLMMODELING(Model = "mean",
+                          Link = "log",
+                          LinPred = clm.cnt ~ zone.f + bus.age.f + 
+                            (1 | co.id),
+                          RandDist = "gamma",
+                          Offset = log(db$dur))
+
+model.phi <- DHGLMMODELING(Model = "dispersion")
+```
+
+We fit our model via the `dhglmfit()` function as follows:
+
+```{r}
+#| echo: true
+#| label: compute-bus-estimates-of-glmm-model
+#| cache: true
+
+fq.poi.re <- dhglmfit(RespDist = "poisson",
+                      DataMain = db,
+                      MeanModel = model.mu,
+                      DispersionModel = model.phi)
+```
+
+From the above output we can see that the estimated coefficients
+are not too different from those we obtained for the negative
+binomial model.
+We also have the estimated variance for our unobserved gamma
+random effect.
+Its value is equal to
+`r round(exp(fq.poi.re[["lambda_coeff"]][1,1]),3)`.
+The density function for the random effect, along with company
+estimated random effects, is shown in
+@fig-bus-random-effects-density-and-points.
+
+
+```{r}
+#| include: false
+#| label: compute-bus-random-effects-density-and-points
+
+sigma <- exp(fq.poi.re$lambda_coeff[1,1])
+alpha <- 1/sigma
+dg <- tibble(x = exp(fq.poi.re$v_h),
+             y = runif(length(x), min = 0, max = 0.02))
+dh <- tibble(x = seq(0.01, 3.2, length = 500),
+                     y = dgamma(x, shape = alpha, scale = sigma))
+rm(sigma, alpha)
+```
+
+```{r}
+#| echo: false
+#| label: fig-bus-random-effects-density-and-points
+#| fig-cap: "The estimated density function for the intercept random effects along with the individual estimated company effects."
+
+ggplot(data = dh,
+       mapping = aes(x = x,
+                     y = y)) +
+  geom_line() +
+  geom_point(data = dg,
+             mapping = aes(x = x, y = y),
+             alpha = 0.2) +
+  labs(x = "Unobserved Gamma Random Variable",
+       y = "Density")
+rm(dg, dh)
+```
+
+Note that we have five points with an estimated random effect greater than
+2.25.
+In
+@tbl-bus-top-5-estimated-random-effects
+we extract these companies and provided their total claim count,
+exposure, empirical annual frequency, and the estimated random effect.
+Note that for these companies the empirical frequency is quite large,
+given that the portfolio annual frequency is
+`r round(sum(db$clm.cnt) / sum(db$dur) * 365, 3)`,
+and so we would expect them to have large estimated random effects.
+
+```{r}
+#| echo: false
+#| label: tbl-bus-top-5-estimated-random-effects
+#| tbl-cap: "Empirical annual frequency and estimated random effect for the top-five companies ranked on the size of their random effect."
+
+db |>
+  group_by(co.id) |>
+  summarize(clm.cnt = sum(clm.cnt),
+            dur = sum(dur)) |>
+  mutate(ran.ef = exp(fq.poi.re[["v_h"]][,1])) |>
+  select(co.id, clm.cnt, dur, ran.ef) |>
+  mutate(freq = clm.cnt / dur * 365) |>
+  select(co.id, clm.cnt, dur, freq, ran.ef) |>
+  arrange(desc(ran.ef)) |>
+  slice(1:5) |>
+  kbl(booktabs = TRUE,
+      col.names = c("Company", "of Claims", "(in days)", 
+                    "Frequency", "Effect"),
+      digits = c(0, 0, 0, 3, 3),
+      align = "crrrr",
+      format.args = list(big.mark = ",")) |>
+  add_header_above(c(" " = 1, "Number" = 1, "Exposure" = 1, 
+                     "Annual" = 1, "Random" = 1),
+                   align = rep("r", 5),
+                   line = FALSE) |>
+  kable_classic()
+```
+
+
+Based on this GLMM, the *annual frequency*
+would be calculated via the formula
+$$
+  \mu_F = \exp(\text{intercept} + \text{zone} + \text{bus.age} + \log(365))
+    \times (\text{random effect of company}).
+$$
+The first term in the above expression represents all the combinations
+of the fixed effects.
+The last term is the random effect for the company.
+@tbl-bus-fixed-effects-annual-frequency-component
+shows the annual frequency for each combination of geographic zone and 
+bus age category based on the fixed effects, and
+@tbl-bus-sample-company-random-effects
+shows 30 companies along with their estimated random effects.
+The companies have been sorted by the magnitude of the random effects, and the
+table displays the 10 smallest and largest random effects, as well as 10
+entries from the middle.
+@fig-bus-duration-random-effects-claim-counts-by-company
+shows a scatterplot of all companies by their total exposure and estimated
+random effects along with their total claim count.
+Companies with large random effects tend to have worse claims experience,
+that is, lower exposure and large number of claims.
+Companies with random effects below 1 tend to have better claims experience.
+
+```{r}
+#| include: false
+#| label: compute-bus-fixed-effect-annual-frequency
+
+cf <- fq.poi.re$beta_coeff[,1]
+zn <- c(cf[2:4], zone.f4 = 0, cf[5:7])
+ba <- c(cf[8:11], bus.age.f4 = 0)
+m <- exp(cf[1]) * outer(exp(zn), exp(ba)) * 365
+dimnames(m) <- list(str_c("Zone ", 1:7), str_c("Bus Age ", 0:4))
+rm(cf, zn, ba)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-bus-fixed-effects-annual-frequency-component
+#| tbl-cap: "Estimated annual frequency based only on the fixed effects from the GLMM."
+
+fe.tbl <- bind_cols("Zone" = 1:7, as_tibble(m))
+fe.tbl |>
+  kbl(booktabs = TRUE,
+      col.names = c("Zone", 0:4),
+      digits = c(0, 3, 3, 3, 3, 3),
+      align = "cccccc") |>
+  add_header_above(c(" " = 1, "Bus Age Category" = 5)) |>
+  kable_classic()
+rm(fe.tbl, m)
+```
+
+
+```{r}
+#| include: false
+#| label: compute-bus-sample-random-effects
+
+rn.ef <- exp(fq.poi.re$v_h[,1])
+ord <- order(rn.ef)
+rn.ef <- rn.ef[ord]
+nms <- as.numeric(dimnames(fq.poi.re$v_h)[[1]])[ord]
+tbl <- bind_cols(co1 = nms[1:10],
+                 re1 = rn.ef[1:10],
+                 co2 = nms[325:334],
+                 re2 = rn.ef[325:334],
+                 co3 = nms[651:660],
+                 re3 = rn.ef[651:660])
+rm(rn.ef, ord, nms)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-bus-sample-company-random-effects
+#| tbl-cap: "Estimated company random effects. Companies have been sorted from smallest to largest random effects."
+
+tbl |>
+  kbl(booktabs = TRUE,
+      col.names = rep(c("Company", "Effect"), 3),
+      digits = rep(c(0, 3), 3),
+      align = "crcrcr") |>
+  add_header_above(rep(c(" " = 1, "Random" = 1), 3),
+                   line = FALSE) |>
+  add_header_above(c("Smallest" = 2, "Medium" = 2, "Largest" = 2)) |>
+  kable_classic()
+rm(tbl)
+```
+
+
+```{r}
+#| include: false
+#| label: compute-bus-duration-random-effects-by-company
+
+dc <- db |>
+  group_by(co.id) |>
+  summarize(clm.cnt = sum(clm.cnt),
+            dur = sum(dur)) |>
+  mutate(ran.ef = exp(fq.poi.re[["v_h"]][,1]),
+         freq = clm.cnt / dur * 365)
+```
+
+```{r}
+#| echo: false
+#| label: fig-bus-duration-random-effects-claim-counts-by-company
+#| fig-cap: "Total company exposure and claim counts along with the estimated company random effect."
+
+ggplot(data = dc,
+       mapping = aes(y = dur,
+                     x = ran.ef,
+                     size = clm.cnt)) +
+  geom_point(alpha = 0.2) +
+  labs(x = "Estimated Random Effect",
+       y = "Total Company Exposure (in days)") +
+  scale_size_continuous(guide = guide_legend(title = "Total Claim Count")) +
+  theme(legend.position = "bottom")
+rm(dc)
+```
+
+

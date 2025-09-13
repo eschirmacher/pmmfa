@@ -1,0 +1,152 @@
+
+# Lambert $W$ Function {#sec-appendix-c}
+
+```{r}
+#| include: false
+#| message: false
+
+library(tidyverse)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+```
+
+
+
+The Lambert $W$ function is also known as the omega function or the product-logarithm
+function.
+Consider the function $f(x) = xe^x$ with domain $x \in \mathbb{R}$ and
+range $f(x) \in [-e^{-1}, \infty)$.
+@fig-app-c-product-logarithm-plot
+shows a plot of $f(x)$ against $x$ for $x \in [-4, 1]$, and note 
+that as $x$ moves toward negative infinity the value of $f(x)$ 
+approaches zero from below.
+The function $f(x)$ has a minimum value at the point $(-1, -e^{-1})$.
+
+```{r}
+#| echo: false
+#| label: fig-app-c-product-logarithm-plot
+#| fig-cap: "The function $f(x) = x e^x$ in the interval from $-4$ to $1$."
+
+dta <- tibble(x = seq(-4, 1, length = 100),
+              y = x * exp(x))
+ggplot(data = dta,
+       mapping = aes(x = x,
+                     y = y)) +
+  geom_line() +
+  labs(x = "x",
+       y = "x exp(x)")
+```
+
+The Lambert $W$ function solves the equation $y = f(x)$ for $x$ in terms
+of $y$---that is,
+$$
+  y = x e^x \quad\text{if and only if}\quad W(y) = x.
+$$
+But in the interval $[-e^{-1},0)$ Lambert's function could take on two
+values, and we must choose which solution we want to use (see
+@fig-app-c-product-logarithm-plot-flipped).
+The red-colored curve (with $y$ values greater than or equal to $-1$)
+is known as the principal branch and is denoted by $W_0$.
+The blue-colored curve represents another possible solution.
+This branch is denoted by $W_{-1}$.
+
+
+```{r}
+#| echo: false
+#| label: fig-app-c-product-logarithm-plot-flipped
+#| fig-cap: "The two branches of the Lambert $W$ function, that is, the inverse of the function $f(x) = x e^x$. The red-colored curve is known as the principal branch and denoted as $W_0$, and the blue-colored curve is denoted as $W_{-1}$."
+
+
+ggplot(data = filter(dta,
+                     x >= - 1),
+       mapping = aes(y = x,
+                     x = y)) +
+  geom_line(color = "red")+
+  geom_line(data = filter(dta,
+                          x <= -1),
+            color = "blue") +
+  labs(x = "",
+       y = "")
+```
+
+## Mean for Zero-Truncated Poisson
+
+In the hospital length of stay application described in 
+@sec-length-of-stay,
+we determined that the mean of the zero-truncated distribution
+can be expressed as (see @eq-los-mean-in-terms-of-lambda)
+$$
+  \mu = \frac{\lambda e^\lambda}{e^\lambda - 1},
+$$
+and we would like to solve this equation for $\lambda$ in terms
+of $\mu$.
+To that end, we rewrite the above equation as
+$$
+  \mu e^\lambda - \mu = \lambda e^\lambda
+$$
+and now move the term $\mu e^\lambda$ to the other side of the 
+equation to obtain
+$$
+  -\mu = (\lambda - \mu) e^\lambda.
+$$
+Multiply both sides by a factor of $e^{-\mu}$, yielding
+$$
+  -\mu e^{-\mu} = (\lambda - \mu) e^{\lambda - \mu}.
+$$
+Notice that this last equation is of the form $z = we^w$, and we can apply
+Lambert's $W_0$ to both sides to obtain
+$$
+  W_0(-\mu e^{-\mu}) = \lambda - \mu,
+$$
+and so we have that
+$$
+  \lambda = \mu + W_0(-\mu e^{-\mu}),
+$$
+giving us the parameter $\lambda$ of the distribution in terms of the 
+mean of the distribution.
+
+
+## Variance function for Zero-Truncated Poisson Distribution
+
+To express the variance function of the zero-truncated Poisson
+distribution in terms of the mean, we start with the following
+expression for the variance (see @eq-los-zero-truncated-poisso-variance-function) in terms of $\lambda$:
+$$
+  \frac{\lambda e^\lambda \left[ e^\lambda - \lambda - 1 \right]}{\left( e^\lambda - 1 \right)^2}.
+$$
+We can rewrite this expression as
+$$
+  \frac{\lambda e^\lambda}{e^\lambda - 1}\cdot\frac{e^\lambda - 1 - \lambda}{e^\lambda - 1} =
+  \mu \left[ 1 - \frac{\lambda}{e^\lambda - 1}\right],
+$$
+where we have used the fact that $\mu = \lambda e^\lambda / (e^\lambda - 1)$.
+The second term inside the square brackets can be rewritten as
+$$
+  \frac{\lambda}{e^\lambda - 1} = \frac{\mu}{e^\lambda}
+$$
+by using the same relationship between $\mu$ and $\lambda$ that we used
+in the previous equation.
+Therefore, our expression for the variance so far looks like
+$$
+  \mu \left[ 1 - \frac{\mu}{e^\lambda}\right].
+$$
+Next, we substitute $\lambda = \mu + W_0(-\mu e^{-\mu})$ and use the
+identity $e^{W_0(x)} = x / W_0(x)$ to get
+$$
+  \mu \left[ 1 - \frac{\mu}{e^\lambda}\right] = 
+  \mu \left[ 1 - \frac{\mu}{e^{\mu + W_0(-\mu e^{-\mu})}}\right] =
+  \mu \left[ 1 - \frac{\mu W_0(-\mu e^{-\mu})}{e^{\mu} (-\mu e^{-\mu})}\right],
+$$
+which simplifies to
+$$
+  \mu \left[ 1 + W_0(-\mu e^{-\mu})\right],
+$$
+which is what we wanted to show, that is, the variance function expressed 
+in terms of the mean of the distribution.
+
+
+

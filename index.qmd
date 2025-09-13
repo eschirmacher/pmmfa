@@ -1,0 +1,164 @@
+
+# Preface {.unnumbered}
+
+We all learn better if we engage with the material and connect new 
+ideas or concepts with things we already know; therefore, we
+encourage readers to replicate the results presented in the text:
+
+- exploratory graphs and tables,
+- model fitting, and
+- diagnostic graphs and tables.
+
+Readers should attempt to write the code necessary to accomplish the
+various tasks before consulting the source code for this
+monograph.
+
+We used the [Quarto](https://quarto.org/) 
+[@Allaire_Quarto_2024]
+publishing system to
+integrate text, computations, tables, and graphs.
+The source code for this monograph is on 
+[GitHub](https://github.com/) in the repository
+[pmmfa](https://github.com/eschirmacher/pmmfa).
+All computations are done in [**R**](https://www.r-project.org/) 
+[@rcoreteamLanguageEnvironmentStatistical2024],
+and nearly all datasets used are in various **R** packages
+that the reader can easily install from the
+[Comprehensive R Archive Network](https://cran.r-project.org/mirrors.html) (CRAN).
+
+We made use of several packages, and readers wishing to replicate
+the work should install them.
+Tables 1, 2, and 3 list the packages, available on CRAN, that we used for computations,
+graphics/tables, and datasets, respectively.
+
+
+| Package Name | Citation |
+|:-------------|:-------------|
+| `actuar`     | @dutangActuarPackageActuarial2008 |
+| `dhglm`      | @leeDhglmDoubleHierarchical2018 |
+| `gamlss`     | @rigbyGeneralizedAdditiveModels2005 |
+| `hglm`       | @ronnegardHglmPackageFitting2010 |
+| `lme4`       | @batesFittingLinearMixedeffects2015 |
+| `MASS`       | @venablesModernAppliedStatistics2002 |
+| `mvtnorm`    | @genzComputationMultivariateNormal2009 |
+| `pracma`     | @borchersPracmaPracticalNumerical2023 |
+| `statmod`    | @dunnRandomizedQuantileResiduals1996 |
+| `tidyverse`  | @wickhamWelcomeTidyverse2019 |
+
+: **R** packages used in computations.
+
+
+| Package Name | Citation |
+|:-------------|:-------------|
+| `GGally`     | @schloerkeGGallyExtensionGgplot22024 |
+| `ggpubr`     | @kassambaraGgpubrGgplot2Based2025 |
+| `kableExtra` | @zhuKableExtraConstructComplex2024 |
+| `patchwork`  | @pedersenPatchworkComposerPlots2024 |
+
+: **R** packages used for graphs and tables.
+
+
+
+| Package Name    | Citation                           |
+|:----------------|:-----------------------------------|
+| `GLMsData`      | Peter K. Dunn and Smyth (2022)     |
+| `insuranceData` | Wolny–Dominiak and Trzesiok (2014) |
+| `lars`          | Hastie and Efron (2022)            |
+| `mdhglm`        | Youngjo Lee, Molas, and Noh (2018) |
+
+: **R** packages with datasets used in the text.
+
+
+
+The `CASdatasets` package, from which we used a couple of
+datasets, is not available on CRAN
+due to its size.
+Please visit the 
+[CASdatasets](https://github.com/dutangc/CASdatasets) 
+page on 
+[GitHub](https://github.com/) 
+for further information and instructions on how to install it.
+
+
+The datasets `bus-case.csv` and `medpar` are not
+available from CRAN. 
+Both can be found from the websites of their corresponding books:
+
+- *Non-Life Insurance Pricing with  Generalized Linear Models* 
+  [@ohlssonNonlifeInsurancePricing2010] is the source of the 
+  dataset `bus-case.csv`.
+- *Negative Binomial Regression*
+  [@hilbeNegativeBinomialRegression2007] provides the 
+  `medpar` dataset.
+
+
+
+
+
+
+
+# CAS Monograph Editorial Board {.unnumbered}
+
+Brandon Smith, \textit{Chair}
+
+Emmanuel Bardis
+
+Marco Dattilo
+
+Marco De Virgilis
+
+Scott Gibson
+
+Michael Henk
+
+Ali Ishaq
+
+Erin Lachen
+
+Joseph Lindner
+
+Wangsun Xia
+
+Janice Young
+
+Yuhan Zhao
+
+Yi Zhang
+
+Yuanshen Zhu
+
+
+# Acknowledgments
+
+I want to thank my colleagues at Bentley University for their
+support, encouragement, and helpful advice as I navigated the
+roller-coaster process of putting thoughts to paper and
+refining them.
+
+The CAS Publications staff and the team at Managed Editing, Inc. did 
+a superb job of catching inconsistencies and polishing
+the manuscript.
+My sincere appreciation for all the behind-the-scenes work to get 
+this over the finish line.
+
+I would also like to thank the review team: Kenneth Hsu,
+Brian Ironside, Clifton Lancaster, Anthony Salis,
+and Betty Zhu. 
+Their copious comments and suggestions have improved the
+presentation of the material and kept me from making some
+blunders.
+If you come across a passage that helps you understand an
+idea or concept, please thank them the next time you see them
+at a conference or event for all the time they spent reviewing
+it.
+If, on the other hand, you come across a section that does not
+make sense, keep in mind that it was not their fault that they
+had to deal with me.
+
+A special thanks to Kenneth for providing constant positive 
+feedback on the many raw drafts that came his way and for
+gently keeping me moving forward.
+
+Finally, I would like to thank my family for their patience 
+and understanding as I worked on this project.
+
