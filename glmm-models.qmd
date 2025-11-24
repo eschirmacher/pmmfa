@@ -120,8 +120,11 @@ tied to a different linear predictor with fixed effects.
 
 And, finally, we have the *double hierarchical generalized linear model*
 (DHGLM), where we take an HGLM and allow random effects in the dispersion
-model and can also introduce explanatory variables via a link function and
-a linear predictor into the variance of the random effects.
+model.[^1]
+
+[^1]: One can also introduce explanatory variables via a link function and
+a linear predictor into the variance of the random effects, but we shall not
+explore this extension in this monograph.
 
 The following diagram is a crude representation of how the
 various models are interconnected (adapted from
@@ -1504,9 +1507,11 @@ distributed random effects.
 are modeled.  The mean model is a model with random effects that are not restricted to being normally distributed.
 The dispersion parameter is modeled via a GLM with fixed effects only.
 1. **Double hierarchical generalized linear model (DHGLM)**. This extends the HGLM
-model by allowing random effects in the model for the dispersion parameter
-and allowing the modeling of the variance of the random effects via
-explanatory variables.
+model by allowing random effects in the model for the dispersion parameter.[^2]
+
+[^2]: One can also introduce explanatory variables via a link function and a
+linear predictor into the variance of the random effects, but we do not explore
+this extension in this monograph.
 
 We revisited the Hachemeister dataset to show how the same model (essentially)
 can be fitted to the data based on the new class of HGLMs.

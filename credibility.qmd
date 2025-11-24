@@ -666,10 +666,10 @@ of the variables $\epsilon_{jt}$.
 
 Under these conditions, the homogeneous linear combination
 $g_{11} X_{11} + \dots + g_{JT} X_{JT}$ that is the best 
-unbiased predictor of $X_{J,T+1}$ in the sense of minimal 
+unbiased predictor of $X_{j,T+1}$ in the sense of minimal 
 mean squared error
 $$
-  \mathbb{E}[(X_{J,T+1} - g_{11} X_{11} - \dots - g_{JT} X_{JT})^2]
+  \mathbb{E}[(X_{j,T+1} - g_{11} X_{11} - \dots - g_{JT} X_{JT})^2]
 $$ {#eq-balanced-buehlmann-mse}
 equals the credibility premium
 $$
@@ -949,7 +949,7 @@ $$
 $$
 we have assumed that the deviation $\Xi_j$ from the
 overall mean $m$ for each risk class $j$ has the same
-variance, namely, $\text{Var}[\Xi_j] = \sigma^2$.
+variance, namely, $\text{Var}[\Xi_j] = \tau^2$.
 In other words, all risk classes have, in essence, been
 measured with the same precision.
 In practice, this may not be a good assumption.
@@ -1851,7 +1851,7 @@ $$
   X_j = Q_j \; \beta(\Theta_j) + \epsilon_j,
 $$ {#eq-matrix-credibility-regression}
 where $X_j$ is a $T \times 1$ column vector of responses
-for risk $j = 1, 2, \dots, J$ and $T$ is the number of
+for risk class $j = 1, 2, \dots, J$ and $T$ is the number of
 time periods we have observed.
 In Hachemeister's example, this corresponds to the observed
 severities for state $j = 1, 2, \dots, 5$ during time
@@ -1910,7 +1910,7 @@ The following definition and theorem come from Chapter 8 of
 
 ## Hachemeister model assumptions
 
-The risk $j$ is characterized by an individual risk profile
+The risk class $j$ is characterized by a class risk profile
 $\vartheta_j$, which is itself the realization of a random
 variable $\Theta_j$.
 We make the following assumptions:
@@ -2699,8 +2699,8 @@ not between the collective and stand-alone figures.
 ::: {.callout-note collapse=true}
 ## Solution
 
-For state 1, both the credibility slope and intercept are 
-outside the intervals defined by the stand-alone and collective
+For state 1, the credibility slope is outside, and the intercept is 
+inside the intervals defined by the stand-alone and collective
 estimates, and for state 2, only the slope is not between the 
 stand-alone and collective estimates.
 State 3 has its intercept outside the collective and the
@@ -3146,7 +3146,7 @@ risks need to be observed over the same time period.
 With these extensions, the credibility premium is of the same form as in
 the balanced B&uuml;hlmann model, namely,
 $$
-  Z_j X_{j\bullet} + (1 - Z_j) X_z
+  Z_j X_{j\circ} + (1 - Z_j) X_z
   \qquad\text{with}\qquad
   Z_j = \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2/\tau^2}.
 $$

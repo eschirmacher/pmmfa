@@ -575,7 +575,7 @@ LMM to the largest.
 The fitted values from the mixed model are the credibility-weighted values
 given by
 $$
-  \hat{y}_{jt} = Z_j \, \bar{y}_{j}  + (1 - Z_j) \, \bar{y},
+  \hat{y}_{j} = Z_j \, \bar{y}_{j}  + (1 - Z_j) \, \bar{y},
 $$
 where $\bar{y}_j$ is the average response value for group $j$,
 $\bar{y}$ is the collective average, and $Z_j$ is the credibility factor

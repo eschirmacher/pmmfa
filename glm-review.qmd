@@ -172,7 +172,7 @@ their linear correlation coefficient is equal to
 `r round(cor(lungcap$Age, lungcap$Ht), 2)`.
 Thus, including both of these variables in a
 linear model may pose some estimation
-problems (multicollinearity).
+problems.
 
 The remaining predictor variables are smoking status
 (`Smoke`) and gender (`Gender`).
